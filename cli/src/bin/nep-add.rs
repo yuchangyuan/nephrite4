@@ -31,14 +31,7 @@ fn main() {
         io::stdout().flush().ok();
 
         match manifest.add(&f.to_string()) {
-            Ok(oid) => {
-                let ref_oid = manifest.anno_map.get(&oid).unwrap().ref_oid;
-
-                println!("ok, {} {}",
-                         &util::to_zbase32(&ref_oid)[..7],
-                         &util::to_zbase32(&oid)[..7]);
-            },
-
+            Ok(_) => println!("ok"),
             Err(e) => println!("error, {}", e)
         }
     }

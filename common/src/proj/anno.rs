@@ -29,12 +29,28 @@ use filetime::FileTime;
 use lazy_static::lazy_static;
 use log::debug;
 
+pub enum St {
+    Ready, // '.'
+    MMeta, // 'm'
+    MFile, // 'M'
+}
+
+pub fn st2chr(st: St) -> String {
+    match st {
+        St::Ready => " ",
+        St::MMeta => "m",
+        St::MFile => "M",
+    }.to_string()
+}
+
 #[derive(Debug)]
 pub struct Anno {
+    // meta
     pub pid: Vec<Id>, // may empty
-    pub ref_oid: Id,
-    pub ref_pid: Vec<Id>, // may empty
+    pub ref_oid: Id, // use ref_oid when mtime match
+    pub anno_hash: Id, // use to check whether yaml/meta need update
 
+    // yaml
     pub data: HashMap<String, cv::Value>,
 
     // manifest dir
@@ -42,8 +58,6 @@ pub struct Anno {
     // relative path
     rpath: String,
 }
-
-pub const SIZE_LIMIT: usize = 1024*1024;
 
 lazy_static! {
     static ref PREDEFINED: Vec<String> = {
@@ -202,11 +216,6 @@ impl Anno {
         Path::new(&self.mdir).join(self.rpath.to_string() + ".yaml")
     }
 
-    fn get_init_oid_path(&self) -> PathBuf {
-        Path::new(&self.mdir)
-            .join(self.rpath.to_string() + ".init_oid")
-    }
-
     pub fn get_file_path(&self) -> PathBuf {
         Path::new(&self.mdir).parent().unwrap().join(&self.rpath)
     }
@@ -233,20 +242,22 @@ impl Anno {
             else if l.starts_with("# ref_oid") {
                 t = 2;
             }
-            else if l.starts_with("# ref_pid") {
+            else if l.starts_with("# anno_hash") {
                 t = 3;
             }
-            else if l.len() == 52 { // ceiling(256 / 5)
-                let id = util::zbase32_to_id(&l);
+            else {
+                if l.len() == 52 { // ceiling(256 / 5)
+                    let id = util::zbase32_to_id(&l);
 
-                if t == 1 {
-                    self.pid.push(id);
-                }
-                else if t == 2 {
-                    self.ref_oid = id;
-                }
-                else if t == 3 {
-                    self.ref_pid.push(id);
+                    if t == 1 {
+                        self.pid.push(id);
+                    }
+                    else if t == 2 {
+                        self.ref_oid = id;
+                    }
+                    else if t == 3 {
+                        self.anno_hash = id;
+                    }
                 }
             }
         }
@@ -274,74 +285,6 @@ impl Anno {
         }
 
         Ok(())
-    }
-
-    pub fn update_pid(&mut self, rpath: &str) -> bool {
-        let mut res: bool = false;
-        let f = Path::new(&self.mdir).parent().unwrap().join(rpath);
-
-        if f.is_file() {
-            res = true;
-
-            match util::calc_id(
-                &f.into_os_string().into_string().unwrap()) {
-                Ok(ref_pid) =>
-                    self.ref_pid.push(ref_pid),
-                _ => ()
-            }
-
-            match Anno::new(&self.mdir, rpath, true) {
-                Ok(_anno) => {
-                    // TODO, merge tag
-                    //anno.data["tag"]
-                },
-                _ => ()
-            }
-        }
-
-        res
-    }
-
-
-    // usually return ok
-    pub fn match_pid(&mut self) -> bool {
-        let rpath = self.rpath.to_string();
-        let mut v: Vec<&str> = rpath.split('.').collect();
-
-        let ext = v.pop().unwrap().to_lowercase();
-        let mut same_level = true;
-
-        loop {
-            if v.len() < 1 || v.last().unwrap().contains("/") {
-                break
-            }
-
-            //println!("ext = {}, join = {}", ext, v.join(".") + ".EXT");
-
-            // TODO, should not hard encoding,
-            // specify handle JPG file
-            if ext == "jpg" {
-                if self.update_pid(&(v.join(".") + ".CR2")) {
-                    return true
-                }
-
-                if self.update_pid(&(v.join(".") + ".RAF")) {
-                    return true
-                }
-            }
-
-
-            if self.update_pid(&v.join(".")) { return true }
-
-            if !same_level && self.update_pid(&(v.join(".") + "." +  &ext)) {
-                return true
-            }
-
-            v.pop().unwrap();
-            same_level = false;
-        }
-
-        false
     }
 
     pub fn update_meta(&mut self) -> io::Result<()> {
@@ -401,8 +344,9 @@ impl Anno {
 
         let mut res = Anno {
             pid: vec![],
+            anno_hash: [0;32],
             ref_oid: [0;32],
-            ref_pid: vec![],
+
             data: HashMap::new(),
             mdir: mdir.into(),
             rpath: rpath.into(),
@@ -422,20 +366,13 @@ impl Anno {
             debug!("new: create yaml & meta");
 
             // init yaml & meta
-            // pid should be []
-            res.ref_oid = util::calc_id(&f.clone().into_os_string().
-                                        into_string().unwrap())?;
-
-            // TODO, find ref pid
-            // ab.cc.dd.ee -> ab.cc.dd -> ab.cc, ab
-            // ab.cc.JPG/jpg -> ab.cc.CR2 -> ab.cc.RAF
-            res.match_pid();
 
             // update fn & size
             res.data.insert("name".into(),
                             cv::Value::Text(rpath.into()));
 
             res.update_meta()?;
+            res.anno_hash = res.get_hash();
 
             // save to file
             res.save()?;
@@ -463,10 +400,8 @@ impl Anno {
             meta.write_fmt(format_args!("\n# ref_oid\n{}\n",
                                         util::to_zbase32(&self.ref_oid)))?;
 
-            meta.write_fmt(format_args!("\n# ref_pid\n"))?;
-            for i in self.ref_pid.clone() {
-                meta.write_fmt(format_args!("{}\n", util::to_zbase32(&i)))?;
-            }
+            meta.write_fmt(format_args!("\n# anno_hash\n{}\n",
+                                        util::to_zbase32(&self.anno_hash)))?;
         }
 
         //println!("ft = {:?}", ft);
@@ -495,20 +430,13 @@ impl Anno {
 
     pub fn gen(&self) -> io::Result<Vec<u8>> {
         // ordered data
-        let mut data: BTreeMap<_, _> = self.data
+        let data: BTreeMap<_, _> = self.data
             .clone().into_iter().collect();
-        let v1 = cv::Value::Array(self.pid.iter()
-                                  .map(|x| cv::Value::Bytes(x.to_vec()))
-                                  .collect());
-        let v2 = cv::Value::Bytes(self.ref_oid.to_vec());
-        let v3 = cv::Value::Array(self.ref_pid.iter()
-                                  .map(|x| cv::Value::Bytes(x.to_vec()))
-                                  .collect());
-        data.insert("_".into(), cv::Value::Array(vec![v1, v2, v3]));
 
         Ok(to_vec(&data).unwrap())
     }
 
+    // TODO, decode from commit, not cbor
     pub fn decode(slice: &[u8]) -> io::Result<Anno> {
         fn other_err(s: &'static str) -> io::Error {
             io::Error::new(io::ErrorKind::Other, s)
@@ -562,7 +490,8 @@ impl Anno {
         let mut res = Anno {
             pid: vec![],
             ref_oid: [0u8;32],
-            ref_pid: vec![],
+            anno_hash: [0u8;32],
+
             data: data,
             mdir: ".".into(),
             rpath: ".".into()
@@ -591,43 +520,18 @@ impl Anno {
         }
 
         res.pid = decode_id_ary(&v[0]);
-        res.ref_pid = decode_id_ary(&v[2]);
 
         Ok(res)
     }
 
-    pub fn decode_file<P: AsRef<Path>>(p: P) -> io::Result<Anno> {
-        let t = tree_magic::from_filepath(p.as_ref());
-
-        // cbor not recognized
-        if t != "application/cbor"
-            && t != "application/octet-stream"
-            && t != "text/plain"
-        {
-            return Err(io::Error::new(io::ErrorKind::Other,
-                                      format!("not cbor, {}", t)));
-        }
-
-        let meta = fs::metadata(&p)?;
-        if meta.len() > SIZE_LIMIT as u64 {
-            return Err(io::Error::new(io::ErrorKind::Other, "over size"));
-        }
-
-        // read cbor
-        let mut buf: Vec<u8> = vec![];
-        let mut file = File::open(p)?;
-        file.read_to_end(&mut buf)?;
-
-        Anno::decode(&buf)
-    }
-
-    pub fn get_oid(&self) -> Id {
+    pub fn get_hash(&self) -> Id {
         let cbor = self.gen().unwrap();
         util::calc_id_buf(&cbor)
     }
 
-    // update yaml & meta
-    pub fn update(&mut self) -> io::Result<bool> {
+    // update yaml & meta, return changed status
+    // but not save
+    pub fn sync(&mut self) -> io::Result<bool> {
         let mut res = false;
 
         // update _ref_oid in meta file if necessary
@@ -637,11 +541,6 @@ impl Anno {
 
         if file_m != meta_m  {
             res = true;
-
-            // update ref_oid
-            self.ref_oid = util::calc_id(&self.get_file_path()
-                                         .into_os_string()
-                                         .into_string().unwrap())?;
 
             // update meta
             self.update_meta()?;
@@ -653,84 +552,52 @@ impl Anno {
             self.update_meta()?;
         }
 
-        if res {
-            self.save()?;
-
-            // check file size limit
-            let cbor = self.gen().unwrap();
-            if cbor.len() > SIZE_LIMIT {
-                return Err(io::Error::new(io::ErrorKind::Other,
-                                          "anno size exceed limit"));
-            }
-        }
-
         Ok(res)
     }
 
-    // 0: ok, 1: need update, 2: need commit, -1: error
-    pub fn status(&self) -> i8 {
-        match self.status_() {
-            Ok(x) => x,
-            _ => -1
-        }
-    }
+    // NOTE: when file change, mtime or size part of anno will change
+    pub fn status(&self) -> io::Result<St> {
+        if self.ref_oid == [0;32] { return Ok(St::MFile); }
+        if self.pid.is_empty() { return Ok(St::MFile); }
 
-    // when export from store or commit to store, will generate .init_oid file
-    pub fn get_init_oid(&self) -> io::Result<Id> {
-        let mut content = String::new();
-        let mut file = File::open(self.get_init_oid_path())?;
-        file.read_to_string(&mut content)?;
-
-        let id = util::zbase32_to_id(&content);
-
-        Ok(id)
-    }
-
-    fn status_(&self) -> io::Result<i8> {
         let meta_m = fs::metadata(self.get_meta_path())?.modified()?;
         let yaml_m = fs::metadata(self.get_yaml_path())?.modified()?;
         let file_m = fs::metadata(self.get_file_path())?.modified()?;
 
+
         //println!("{:?}, {:?}, {:?}",
         //file_m, yaml_m, meta_m);
 
-        if file_m != meta_m { return Ok(1); }
-        if file_m != yaml_m { return Ok(1); }
+        if file_m != meta_m { return Ok(St::MFile); }
+        if file_m == yaml_m { return Ok(St::Ready); }
 
-        let _id = self.get_oid();
-
-        match self.get_init_oid() {
-            Ok(id) => {
-                if id != self.get_oid() {
-                    return Ok(2)
-                }
-            },
-            _ => return Ok(2)
+        // check actual yaml hash
+        if self.get_hash() != self.anno_hash {
+            return Ok(St::MMeta);
         }
 
-        Ok(0)
+        Ok(St::Ready)
     }
 
-    // return new status
-    pub fn commit<F>(&mut self, commit_func: F) -> io::Result<i8>
+    // TODO
+    // NOTE: only
+    pub fn commit<F>(&mut self, commit_func: F) -> io::Result<()>
         where F: Fn(&Anno) -> io::Result<()>
     {
-        let st = self.status();
-        if st != 2 { return Ok(st); }
+        if let Ok(St::Ready) = self.status() { return Ok(()); }
 
+        // sync file status
+        self.sync()?;
+
+        // TODO, update pid & ref_oid
         commit_func(self)?;
 
-        // update pid
-        let oid = self.get_oid();
-        self.pid = vec![oid];
+        // update anno_hash
+        self.anno_hash = self.get_hash();
 
         self.save()?;
 
-        let init_oid = self.get_oid();
-        let mut f = File::create(self.get_init_oid_path())?;
-        f.write(util::to_zbase32(&init_oid).as_bytes())?;
-
-        Ok(self.status())
+        Ok(())
     }
 
     pub fn get_name(&self) -> Option<String> {

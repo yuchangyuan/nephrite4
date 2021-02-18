@@ -13,7 +13,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub struct Manifest {
     pub mdir: String,
-    pub anno_map: BTreeMap<Id, anno::Anno>
+    pub anno_map: BTreeMap<String, anno::Anno>
 }
 
 impl Manifest {
@@ -44,8 +44,8 @@ impl Manifest {
                             //let g = anno.gen().unwrap();
                             //println!("{:?}", g);
                             //println!("{:?}", to_zbase32(&calc_id_buf(&g)));
-
-                            res.anno_map.insert(anno.get_oid(), anno);
+                            let name = p.to_string();
+                            res.anno_map.insert(name, anno);
                         },
                         Err(e) => {
                             println!("Error load {}, {:?}", &p, e)
@@ -59,53 +59,31 @@ impl Manifest {
         Ok(res)
     }
 
-    pub fn find_file(&self, name: &str) -> Option<Id> {
-        // NOTE: this is slow
-        for (k, v) in self.anno_map.iter() {
-            match v.get_name() {
-                Some(n) => if n == name {
-                    return Some(k.clone())
-                },
-                _ => ()
-            }
-        }
 
-        return None
-    }
-
-    pub fn add(&mut self, rpath: &str) -> io::Result<Id> {
+    pub fn add(&mut self, rpath: &str) -> io::Result<String> {
         let anno = anno::Anno::new(&self.mdir, rpath, false)?;
+        let name = rpath.to_string();
+        self.anno_map.insert(name.clone(), anno);
 
-        // TODO, should avoid dup
-        let oid = anno.get_oid();
-        self.anno_map.insert(oid, anno);
-
-        Ok(oid)
+        Ok(name)
     }
 
-    pub fn update(&mut self) -> io::Result<Vec<Id>> {
-        let mut res: Vec<Id> = vec![];
+    pub fn update(&mut self) -> io::Result<()> {
+        let k: Vec<String> = self.anno_map.keys().map(|x| x.clone()).collect();
 
-        let ids: Vec<Id> = self.anno_map.keys().map(|x| x.clone()).collect();
-
-        // NOTE: get_oid() return might change after update
-        for i in ids {
-            let mut i1 = i.clone();
+        for i in k {
             let mut anno = self.anno_map.remove(&i).unwrap();
-            match anno.update() {
+            match anno.sync() {
                 Err(e) => {
                     println!("up fail: {:?}", e);
                 },
                 Ok(true) => {
-                    i1 = anno.get_oid();
-                    res.push(i1.clone());
+                    anno.save()?;
                 },
                 _ => ()
             }
-
-            self.anno_map.insert(i1.clone(), anno);
         }
 
-        Ok(res)
+        Ok(())
     }
 }
