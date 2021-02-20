@@ -6,7 +6,7 @@ use std::io;
 
 use glob::glob;
 
-use crate::util::Id;
+//use crate::util::Id;
 
 use std::collections::BTreeMap;
 
@@ -39,7 +39,7 @@ impl Manifest {
                     let l = p.len();
                     p.truncate(l - 5);
                     // println!("p = {}", p);
-                    match anno::Anno::new(mdir, &p, true) {
+                    match anno::Anno::new(mdir, &p, false) {
                         Ok(anno) => {
                             //let g = anno.gen().unwrap();
                             //println!("{:?}", g);
@@ -66,24 +66,5 @@ impl Manifest {
         self.anno_map.insert(name.clone(), anno);
 
         Ok(name)
-    }
-
-    pub fn update(&mut self) -> io::Result<()> {
-        let k: Vec<String> = self.anno_map.keys().map(|x| x.clone()).collect();
-
-        for i in k {
-            let mut anno = self.anno_map.remove(&i).unwrap();
-            match anno.sync() {
-                Err(e) => {
-                    println!("up fail: {:?}", e);
-                },
-                Ok(true) => {
-                    anno.save()?;
-                },
-                _ => ()
-            }
-        }
-
-        Ok(())
     }
 }

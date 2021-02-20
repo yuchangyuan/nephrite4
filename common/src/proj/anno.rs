@@ -9,7 +9,6 @@ use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::fs::File;
 
-use std::collections::HashMap;
 use std::collections::BTreeMap;
 
 use std::fs;
@@ -18,7 +17,6 @@ use std::fs;
 use serde_cbor;
 use serde_cbor::value as cv;
 
-use serde_cbor::ser::to_vec;
 //use std::time::SystemTime;
 //use std::time::UNIX_EPOCH;
 
@@ -29,6 +27,7 @@ use filetime::FileTime;
 use lazy_static::lazy_static;
 use log::debug;
 
+#[derive(PartialEq, Eq)]
 pub enum St {
     Ready, // '.'
     MMeta, // 'm'
@@ -37,7 +36,7 @@ pub enum St {
 
 pub fn st2chr(st: St) -> String {
     match st {
-        St::Ready => " ",
+        St::Ready => ".",
         St::MMeta => "m",
         St::MFile => "M",
     }.to_string()
@@ -51,7 +50,7 @@ pub struct Anno {
     pub anno_hash: Id, // use to check whether yaml/meta need update
 
     // yaml
-    pub data: HashMap<String, cv::Value>,
+    pub data: BTreeMap<String, cv::Value>,
 
     // manifest dir
     mdir: String,
@@ -73,7 +72,7 @@ impl Anno {
         // xxx=xxx -> set kv
         // xxx+xxx -> append
         // xxx-xxx -> remove
-        fn add(data: &mut HashMap<String, cv::Value>,
+        fn add(data: &mut BTreeMap<String, cv::Value>,
                key: &str, val: &str, an: bool) -> bool {
             let key_s = key.to_string();
             let mut res = true;
@@ -120,7 +119,7 @@ impl Anno {
             res
         }
 
-        fn set(data: &mut HashMap<String, cv::Value>,
+        fn set(data: &mut BTreeMap<String, cv::Value>,
                key: &str, val: &str, an: bool) -> bool {
             let exists = data.contains_key(key);
             let key_s = key.to_string();
@@ -132,7 +131,7 @@ impl Anno {
             true
         }
 
-        fn del(data: &mut HashMap<String, cv::Value>,
+        fn del(data: &mut BTreeMap<String, cv::Value>,
                key: &str, val: &str) -> bool {
             let exists = data.contains_key(key);
             if !exists { return false; }
@@ -274,7 +273,7 @@ impl Anno {
             |e| io::Error::new(io::ErrorKind::Other,
                                e))?;
 
-        self.data = HashMap::new();
+        self.data = BTreeMap::new();
 
         if let cv::Value::Map(m) = v {
             for (k1, v1) in m {
@@ -320,9 +319,8 @@ impl Anno {
             _ => ()
         }
 
-        if mt > 0 {
-            self.data.insert("mtime".into(), cv::Value::Integer(mt as i128));
-        }
+        // mtime is any newer of anno(yaml) & file
+        self.data.insert("mtime".into(), cv::Value::Integer(mt as i128));
 
         Ok(())
     }
@@ -347,7 +345,7 @@ impl Anno {
             anno_hash: [0;32],
             ref_oid: [0;32],
 
-            data: HashMap::new(),
+            data: BTreeMap::new(),
             mdir: mdir.into(),
             rpath: rpath.into(),
         };
@@ -357,6 +355,10 @@ impl Anno {
             debug!("new: load yaml & meta");
             res.parse_meta()?;
             res.parse_yaml()?;
+
+            if !load_only {
+                res.sync()?;
+            }
         }
         else {
             if load_only {
@@ -428,13 +430,6 @@ impl Anno {
         Ok(())
     }
 
-    pub fn gen(&self) -> io::Result<Vec<u8>> {
-        // ordered data
-        let data: BTreeMap<_, _> = self.data
-            .clone().into_iter().collect();
-
-        Ok(to_vec(&data).unwrap())
-    }
 
     // TODO, decode from commit, not cbor
     pub fn decode(slice: &[u8]) -> io::Result<Anno> {
@@ -442,7 +437,7 @@ impl Anno {
             io::Error::new(io::ErrorKind::Other, s)
         }
 
-        let data: HashMap<String, cv::Value> =
+        let data: BTreeMap<String, cv::Value> =
             serde_cbor::from_slice(slice)
             .map_err(|_e| other_err("cbor decode err"))?;
 
@@ -525,8 +520,13 @@ impl Anno {
     }
 
     pub fn get_hash(&self) -> Id {
-        let cbor = self.gen().unwrap();
-        util::calc_id_buf(&cbor)
+        let yaml = serde_yaml::to_vec(&self.data).unwrap();
+        util::calc_id_buf(&yaml)
+    }
+
+    pub fn gen_yaml(&self) -> io::Result<String> {
+        serde_yaml::to_string(&self.data).map_err(
+            |e| io::Error::new(io::ErrorKind::Other, e))
     }
 
     // update yaml & meta, return changed status
@@ -561,7 +561,7 @@ impl Anno {
         if self.pid.is_empty() { return Ok(St::MFile); }
 
         let meta_m = fs::metadata(self.get_meta_path())?.modified()?;
-        let yaml_m = fs::metadata(self.get_yaml_path())?.modified()?;
+        //let yaml_m = fs::metadata(self.get_yaml_path())?.modified()?;
         let file_m = fs::metadata(self.get_file_path())?.modified()?;
 
 
@@ -569,7 +569,6 @@ impl Anno {
         //file_m, yaml_m, meta_m);
 
         if file_m != meta_m { return Ok(St::MFile); }
-        if file_m == yaml_m { return Ok(St::Ready); }
 
         // check actual yaml hash
         if self.get_hash() != self.anno_hash {
@@ -581,16 +580,17 @@ impl Anno {
 
     // TODO
     // NOTE: only
-    pub fn commit<F>(&mut self, commit_func: F) -> io::Result<()>
-        where F: Fn(&Anno) -> io::Result<()>
+    pub fn commit<F>(&mut self, mut commit_func: F) -> io::Result<()>
+        where F: FnMut(St, &mut Anno) -> io::Result<()>
     {
-        if let Ok(St::Ready) = self.status() { return Ok(()); }
+        let st = self.status()?;
+        if st == St::Ready { return Ok(()) }
 
         // sync file status
         self.sync()?;
 
-        // TODO, update pid & ref_oid
-        commit_func(self)?;
+        // here should, update pid & ref_oid
+        commit_func(st, self)?;
 
         // update anno_hash
         self.anno_hash = self.get_hash();
