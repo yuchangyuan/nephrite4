@@ -1,8 +1,9 @@
 
 use crate::proj::*;
+use crate::error::*;
+
 use std::fs;
 use std::env;
-use std::io;
 
 use glob::glob;
 
@@ -18,7 +19,7 @@ pub struct Manifest {
 
 impl Manifest {
     // TODO: create lock
-    pub fn new(mdir: &str) -> io::Result<Manifest> {
+    pub fn new(mdir: &str) -> Result<Manifest> {
         let mut res = Manifest {
             mdir: mdir.to_string(),
             anno_map: BTreeMap::new()
@@ -60,7 +61,7 @@ impl Manifest {
     }
 
 
-    pub fn add(&mut self, rpath: &str) -> io::Result<String> {
+    pub fn add(&mut self, rpath: &str) -> Result<String> {
         let anno = anno::Anno::new(&self.mdir, rpath, false)?;
         let name = rpath.to_string();
         self.anno_map.insert(name.clone(), anno);

@@ -5,11 +5,12 @@ use crate::conf::Conf;
 use crate::proj::{anno, manifest};
 use util::Id;
 
+use crate::error::*;
+
 use std::io;
 
 use std::io::Write;
 
-use std::io::Result;
 use std::io::BufReader;
 
 // for read_until
@@ -160,8 +161,7 @@ impl Store {
 
         // not exist
         if !git.status.success() {
-            return Err(io::Error::new(io::ErrorKind::Other,
-                                      "git update-ref fail"))
+            return err("git update-ref fail")
         }
 
         Ok(())

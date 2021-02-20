@@ -2,6 +2,7 @@ pub mod conf;
 pub mod proj;
 pub mod util;
 pub mod store;
+pub mod error;
 
 #[cfg(test)]
 mod tests {

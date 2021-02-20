@@ -3,6 +3,8 @@
 use crate::util;
 use crate::util::Id;
 
+use crate::error::*;
+
 use std::io;
 use std::io::prelude::*;
 
@@ -223,7 +225,7 @@ impl Anno {
         self.data.get(key.into())
     }
 
-    fn parse_meta(&mut self) -> io::Result<()> {
+    fn parse_meta(&mut self) -> Result<()> {
         let mut content = String::new();
         let mut file = File::open(self.get_meta_path())?;
         file.read_to_string(&mut content)?;
@@ -264,14 +266,12 @@ impl Anno {
         Ok(())
     }
 
-    pub fn parse_yaml(&mut self) -> io::Result<()> {
+    pub fn parse_yaml(&mut self) -> Result<()> {
         let mut file = File::open(self.get_yaml_path())?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
 
-        let v: cv::Value = serde_yaml::from_str(&content).map_err(
-            |e| io::Error::new(io::ErrorKind::Other,
-                               e))?;
+        let v: cv::Value = serde_yaml::from_str(&content)?;
 
         self.data = BTreeMap::new();
 
@@ -286,7 +286,7 @@ impl Anno {
         Ok(())
     }
 
-    pub fn update_meta(&mut self) -> io::Result<()> {
+    pub fn update_meta(&mut self) -> Result<()> {
         let f = self.get_file_path();
         let mut mt = 0u64;
 
@@ -327,7 +327,7 @@ impl Anno {
 
     // init a anno struct
     pub fn new(mdir: &str, rpath: &str, load_only: bool)
-               -> io::Result<Anno> {
+               -> Result<Anno> {
         let m = Path::new(mdir);
         let f = m.parent().unwrap().join(rpath);
 
@@ -336,8 +336,8 @@ impl Anno {
 
         // check mdir exit, check file exist
         if !m.is_dir() || !f.is_file() {
-            return Err(io::Error::new(io::ErrorKind::NotFound,
-                                      "file not exist"));
+            return Err(Error::IO(io::Error::new(io::ErrorKind::NotFound,
+                                                "file not exist")));
         }
 
         let mut res = Anno {
@@ -362,8 +362,8 @@ impl Anno {
         }
         else {
             if load_only {
-                return Err(io::Error::new(io::ErrorKind::NotFound,
-                                          "manifest not exist"));
+                return Err(Error::IO(io::Error::new(io::ErrorKind::NotFound,
+                                                    "manifest not exist")));
             }
             debug!("new: create yaml & meta");
 
@@ -384,7 +384,7 @@ impl Anno {
     }
 
     // save file
-    pub fn save(&mut self) -> io::Result<()> {
+    pub fn save(&mut self) -> Result<()> {
         let file_meta = fs::metadata(self.get_file_path())?;
         let ft = FileTime::from_last_modification_time(&file_meta);
 
@@ -432,14 +432,9 @@ impl Anno {
 
 
     // TODO, decode from commit, not cbor
-    pub fn decode(slice: &[u8]) -> io::Result<Anno> {
-        fn other_err(s: &'static str) -> io::Error {
-            io::Error::new(io::ErrorKind::Other, s)
-        }
-
+    pub fn decode(slice: &[u8]) -> Result<Anno> {
         let data: BTreeMap<String, cv::Value> =
-            serde_cbor::from_slice(slice)
-            .map_err(|_e| other_err("cbor decode err"))?;
+            serde_cbor::from_slice(slice)?;
 
         fn is_id_ary(v: &cv::Value) -> bool {
             if let cv::Value::Array(_a) = v {
@@ -492,26 +487,26 @@ impl Anno {
             rpath: ".".into()
         };
 
-        let m = res.data.remove("_").ok_or(other_err("format err"))?;
+        let m = res.data.remove("_").ok_or(err_simple("format err"))?;
 
         let v = match m {
             cv::Value::Array(_v) => _v,
-            _ => return Err(other_err("meta is not array")),
+            _ => return err("meta is not array"),
         };
 
         if v.len() != 3 {
-            return Err(other_err("len of meta array is not 3"));
+            return err("len of meta array is not 3");
         }
 
         if let cv::Value::Bytes(ref _b) = v[1] {
             res.ref_oid = to_id(_b);
         }
         else {
-            return Err(other_err("ref_oid err"));
+            return err("ref_oid err");
         }
 
         if !is_id_ary(&v[0]) || !is_id_ary(&v[2]) {
-            return Err(other_err("pid or ref_pid is not array"));
+            return err("pid or ref_pid is not array");
         }
 
         res.pid = decode_id_ary(&v[0]);
@@ -524,14 +519,13 @@ impl Anno {
         util::calc_id_buf(&yaml)
     }
 
-    pub fn gen_yaml(&self) -> io::Result<String> {
-        serde_yaml::to_string(&self.data).map_err(
-            |e| io::Error::new(io::ErrorKind::Other, e))
+    pub fn gen_yaml(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(&self.data)?)
     }
 
     // update yaml & meta, return changed status
     // but not save
-    pub fn sync(&mut self) -> io::Result<bool> {
+    pub fn sync(&mut self) -> Result<bool> {
         let mut res = false;
 
         // update _ref_oid in meta file if necessary
@@ -556,7 +550,7 @@ impl Anno {
     }
 
     // NOTE: when file change, mtime or size part of anno will change
-    pub fn status(&self) -> io::Result<St> {
+    pub fn status(&self) -> Result<St> {
         if self.ref_oid == [0;32] { return Ok(St::MFile); }
         if self.pid.is_empty() { return Ok(St::MFile); }
 
@@ -580,8 +574,8 @@ impl Anno {
 
     // TODO
     // NOTE: only
-    pub fn commit<F>(&mut self, mut commit_func: F) -> io::Result<()>
-        where F: FnMut(St, &mut Anno) -> io::Result<()>
+    pub fn commit<F>(&mut self, mut commit_func: F) -> Result<()>
+        where F: FnMut(St, &mut Anno) -> Result<()>
     {
         let st = self.status()?;
         if st == St::Ready { return Ok(()) }
