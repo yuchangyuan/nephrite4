@@ -280,7 +280,7 @@ impl Store {
                 let pid = self.commit_anno(an)?;
 
                 println!("    commit {} {}",
-                         &util::to_zbase32(&pid)[..7],
+                         &util::to_zbase32(&pid)[..8],
                          &hex::encode(&pid));
 
                 res.obj_list.push(pid.clone());
@@ -312,7 +312,7 @@ impl Store {
 
         println!("---");
         println!("tree   {} {}",
-                 &util::to_zbase32(&tree)[..7],
+                 &util::to_zbase32(&tree)[..8],
                  &hex::encode(tree));
 
         // update inc
@@ -328,7 +328,7 @@ impl Store {
         self.update_ref(INC_REF, &inc_commit)?;
 
         println!("commit {} {}",
-                 &util::to_zbase32(&inc_commit)[..7],
+                 &util::to_zbase32(&inc_commit)[..8],
                  &hex::encode(&inc_commit));
 
         res.inc_head = Some(inc_commit);
@@ -381,7 +381,7 @@ impl Store {
         let mut res = [0;32];
         hex::decode_to_slice(out1, &mut res).unwrap();
 
-        println!("    tree   {} {}", &util::to_zbase32(&res)[..7], out1);
+        println!("    tree   {} {}", &util::to_zbase32(&res)[..8], out1);
 
         Ok(res)
     }
