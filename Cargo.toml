@@ -1,2 +1,2 @@
 [workspace]
-members = ["cli", "common"]
+members = ["cli", "common", "query"]
