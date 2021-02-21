@@ -82,8 +82,8 @@ fn split_non_latin_words(ln: &str) -> Vec<&str> {
 
             if PUNCTUATION_SET.contains(&c) {
                 words.push(ln.substring(word_start, word_end));
-                word_start = idx;
-                word_end = idx;
+                word_start = idx + 1;
+                word_end = idx + 1;
                 test_latin = true
             }
         }
@@ -95,7 +95,7 @@ fn split_non_latin_words(ln: &str) -> Vec<&str> {
         words.push(ln.substring(word_start, word_end));
     }
 
-    debug!("words: {:?}", words);
+    //println!("words: {:?}", words);
 
     return words;
 }
