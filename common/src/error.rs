@@ -12,14 +12,12 @@ pub enum Error {
     IO(io::Error),
     YAML(serde_yaml::Error),
     CBOR(serde_cbor::Error),
-    Other(String),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Simple(msg) => write!(f, "SimpleError: {}", msg),
-            Error::Other(msg) => write!(f, "OtherError: {}", msg),
             Error::YAML(e) => e.fmt(f),
             Error::CBOR(e) => e.fmt(f),
             Error::IO(e) => e.fmt(f)
@@ -31,7 +29,6 @@ impl error::Error for Error {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         match self {
             Error::Simple(_) => None,
-            Error::Other(_) => None,
             Error::YAML(e) => Some(e),
             Error::CBOR(e) => Some(e),
             Error::IO(e) => Some(e),
