@@ -11,7 +11,9 @@ fn t(s: &str) {
 }
 
 fn main() {
+    env_logger::init();
+
     t("太郎は次郎が持っている本を花子に渡した。");
-    t("我们中出了一个叛徒。从前有座山，山上有座庙，庙里有个和尚。");
+    t("我们中出了一个好人。从前有座山，山上有座庙，庙里有个和尚。");
     t("This brown fox is looking for a lazy dog to jump over.");
 }

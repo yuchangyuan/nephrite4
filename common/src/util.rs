@@ -9,6 +9,9 @@ use std::io::Read;
 
 use serde_json;
 
+#[cfg(test)]
+use serde_json::json;
+
 pub type Id = [u8;32];
 
 pub fn calc_id(file: &str) -> io::Result<Id> {

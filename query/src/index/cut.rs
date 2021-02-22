@@ -57,7 +57,8 @@ lazy_static! {
     static ref JIEBA: Jieba = Jieba::new();
     static ref STEMMER_EN: Stemmer = Stemmer::create(Algorithm::English);
     static ref NOTMECAB_DICT: Dict = {
-        let sysdic = Blob::new(std::include_bytes!("ipadic-utf8/sys.dic"));
+
+        //let sysdic = Blob::new(std::include_bytes!("ipadic-utf8/sys.dic"));
         let unkdic = Blob::new(std::include_bytes!("ipadic-utf8/unk.dic"));
         let matrix = Blob::new(std::include_bytes!("ipadic-utf8/matrix.bin"));
         let unkdef = Blob::new(std::include_bytes!("ipadic-utf8/char.bin"));
@@ -67,35 +68,31 @@ lazy_static! {
 }
 
 // TODO, here usage of substring is not optimize
-fn split_non_latin_words(ln: &str) -> Vec<&str> {
+fn split_non_latin_words(ln: &str) -> Vec<String> {
     let mut words = vec![];
-    let mut word_start = 0;
-    let mut word_end = 0;
+    let mut word = vec![];
     let mut test_latin = true;
-    let mut idx: usize = 0;
 
     for c in ln.chars() {
-        word_end += 1;
+        word.push(c);
 
         if !(test_latin && c.is_alphabetic()) {
             test_latin = false;
 
             if PUNCTUATION_SET.contains(&c) {
-                words.push(ln.substring(word_start, word_end));
-                word_start = idx + 1;
-                word_end = idx + 1;
+                let word_s: String = word.into_iter().collect();
+                words.push(word_s);
+
+                word = vec![];
                 test_latin = true
             }
         }
-
-        idx += 1;
     }
 
-    if word_end > word_start {
-        words.push(ln.substring(word_start, word_end));
+    if !word.is_empty() {
+        let word_s: String = word.into_iter().collect();
+        words.push(word_s);
     }
-
-    //println!("words: {:?}", words);
 
     return words;
 }
@@ -150,15 +147,15 @@ pub fn cut_ln(ln: &str) -> Vec<(String, usize)> {
     for word in words {
         let mut is_ja = false;
 
-        if let Some(info) = whatlang::detect(word) {
+        if let Some(info) = whatlang::detect(&word) {
             if info.lang() == Lang::Jpn { is_ja = true }
         }
 
         if is_ja {
-            res.append(&mut cut_ja(offset, word));
+            res.append(&mut cut_ja(offset, &word));
         }
         else {
-            res.append(&mut cut_cn_en(offset, word));
+            res.append(&mut cut_cn_en(offset, &word));
         }
 
         offset += word.len();
@@ -207,4 +204,24 @@ pub fn cut(_mt: &str, c: &str) -> Vec<(u64, TsVector)> {
     }
 
     res
+}
+
+#[cfg(test)]
+fn t_cut_ln_cn_(s: &str) {
+    let res = cut_ln(s);
+
+    //println!("----> {}", s);
+
+    for (w, i) in res {
+        //println!("{} {}", w, i);
+        assert_eq!(&s[i .. i+w.len()], w);
+    }
+}
+
+#[test]
+fn t_cut_ln_cn()
+{
+    t_cut_ln_cn_("太郎は次郎が持っている本を花子に渡した。");
+    t_cut_ln_cn_("我们中出了一个好人。从前有座山，山上有座庙，庙里有个和尚。");
+    //t_cut_ln_("This brown fox is looking for a lazy dog to jump over.");
 }
