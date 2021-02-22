@@ -19,6 +19,8 @@ use whatlang::{Info, Lang};
 use log::debug;
 use substring::Substring;
 
+use zstd;
+
 const PUNCTUATION: [char;42] = [
     '.', ',', '"', '\'', '?', '!', ':', ';',
     '(', ')', '[', ']', '{', '}', '\\',
@@ -57,11 +59,17 @@ lazy_static! {
     static ref JIEBA: Jieba = Jieba::new();
     static ref STEMMER_EN: Stemmer = Stemmer::create(Algorithm::English);
     static ref NOTMECAB_DICT: Dict = {
+        let a = std::include_bytes!("ipadic-utf8/sys.dic.zst");
+        let sysdic = Blob::new(zstd::stream::decode_all(&a[..]).unwrap());
 
-        //let sysdic = Blob::new(std::include_bytes!("ipadic-utf8/sys.dic"));
-        let unkdic = Blob::new(std::include_bytes!("ipadic-utf8/unk.dic"));
-        let matrix = Blob::new(std::include_bytes!("ipadic-utf8/matrix.bin"));
-        let unkdef = Blob::new(std::include_bytes!("ipadic-utf8/char.bin"));
+        let a = std::include_bytes!("ipadic-utf8/unk.dic.zst");
+        let unkdic = Blob::new(zstd::stream::decode_all(&a[..]).unwrap());
+
+        let a = std::include_bytes!("ipadic-utf8/matrix.bin.zst");
+        let matrix = Blob::new(zstd::stream::decode_all(&a[..]).unwrap());
+
+        let a = std::include_bytes!("ipadic-utf8/char.bin.zst");
+        let unkdef = Blob::new(zstd::stream::decode_all(&a[..]).unwrap());
 
         Dict::load(sysdic, unkdic, matrix, unkdef).unwrap()
     };
