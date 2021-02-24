@@ -28,6 +28,7 @@ use chrono::prelude::*;
 use serde_cbor::value as cv;
 
 use hex;
+use std::str;
 
 use log::debug;
 
@@ -74,13 +75,27 @@ pub enum ObjType {
     Tag,
 }
 
-fn type2mode(t: &ObjType) -> i32 {
-    match t {
-        ObjType::Commit  => 0o160000,
-        ObjType::Tree    => 0o040000,
-        ObjType::Blob(m) => *m,
-        ObjType::Tag     => 0,
+impl ObjType {
+    fn mode(&self) -> i32 {
+        match self {
+            ObjType::Commit  => 0o160000,
+            ObjType::Tree    => 0o040000,
+            ObjType::Blob(m) => *m,
+            ObjType::Tag     => 0,
+        }
     }
+
+    pub fn from_mode(m: i32) -> ObjType {
+        match m {
+            0o160000 => ObjType::Commit,
+            0o040000 => ObjType::Tree,
+            _ => ObjType::Blob(m),
+        }
+    }
+}
+
+fn type2mode(t: &ObjType) -> i32 {
+    t.mode()
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +180,100 @@ impl Store {
         }
 
         Ok(())
+    }
+
+    fn cat_file(&self, tp: &str, commit: &Id) -> Result<Vec<u8>> {
+        let git = Command::new("git")
+            .env(ENV_GIT_DIR, &self.root)
+            .arg("cat-file")
+            .arg(tp)
+            .arg(&hex::encode(commit))
+            .output()
+            .expect("failed to execute git-cat-file");
+
+        // not exist
+        if !git.status.success() {
+            return err("git update-ref fail")
+        }
+
+        Ok(git.stdout)
+    }
+
+    pub fn read_commit(&self, commit: &Id, full: bool) -> Result<Anno> {
+        let raw = self.cat_file("commit", commit)?;
+        let buf = str::from_utf8(&raw).unwrap();
+
+        let mut slice = &buf[..];
+        let mut ln: &str;
+        let mut pid_list: Vec<Id> = vec![];
+        let mut tree: Id = [0;32];
+
+        loop {
+            let t = slice.find('\n');
+
+            ln = "";
+            if let Some(n) = t {
+                ln = &slice[..n+1];
+                slice = &slice[n..];
+            }
+
+            let ln1 = ln.trim();
+
+            if ln1.starts_with("tree ") {
+                tree = util::to_id(&hex::decode(ln1[5..].trim()).unwrap());
+            }
+            else if ln1.starts_with("parent ") {
+                let pid = util::to_id(&hex::decode(ln1[6..].trim()).unwrap());
+                pid_list.push(pid);
+            }
+            else if ln1.is_empty() {
+                break
+            }
+        }
+
+        let res = Anno::decode(&pid_list[..], &tree, slice, full)?;
+
+        Ok(res)
+    }
+
+    pub fn read_tree(&self, commit: &Id) -> Result<Vec<(ObjType, String, Id)>> {
+        let raw = self.cat_file("tree", commit)?;
+
+        let mut idx0 = 0;
+        let mut idx1 = 0;
+
+        let next_byte_match = |b: u8, idx: &mut usize| -> bool {
+            while *idx < raw.len() {
+                if raw[*idx] == b { return true; }
+                *idx += 1;
+            }
+
+            false
+        };
+
+        let mut res = vec![];
+
+        loop {
+            if !next_byte_match(b' ', &mut idx1) { break; }
+
+            let mode = str::from_utf8(&raw[idx0..idx1]).unwrap();
+            idx0 = idx1 + 1;
+            idx1 = idx0;
+
+            if !next_byte_match(0, &mut idx1) { break; }
+            let name = str::from_utf8(&raw[idx0 .. idx1]).unwrap();
+
+            idx0 = idx1 + 1;
+            idx1 = idx0 + OID_LEN;
+
+            let id = util::to_id(&raw[idx0 .. idx1]);
+
+            let mode_i = ("0o".to_string() + &mode[..]).parse::<i32>().unwrap();
+
+            res.push((ObjType::from_mode(mode_i), name.to_string(), id))
+        }
+
+        Ok(res)
     }
 
     fn write_tree(&self, list: &[(ObjType, &Id, &str)]) -> Result<Id> {

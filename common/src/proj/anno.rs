@@ -266,12 +266,17 @@ impl Anno {
         Ok(())
     }
 
+
     pub fn parse_yaml(&mut self) -> Result<()> {
         let mut file = File::open(self.get_yaml_path())?;
         let mut content = String::new();
         file.read_to_string(&mut content)?;
 
-        let v: cv::Value = serde_yaml::from_str(&content)?;
+        self.parse_yaml_(&content)
+    }
+
+    fn parse_yaml_(&mut self, content: &str) -> Result<()> {
+        let v: cv::Value = serde_yaml::from_str(content)?;
 
         self.data = BTreeMap::new();
 
@@ -431,85 +436,37 @@ impl Anno {
     }
 
 
-    // TODO, decode from commit, not cbor
-    pub fn decode(slice: &[u8]) -> Result<Anno> {
-        let data: BTreeMap<String, cv::Value> =
-            serde_cbor::from_slice(slice)?;
-
-        fn is_id_ary(v: &cv::Value) -> bool {
-            if let cv::Value::Array(_a) = v {
-                for e in _a {
-                    if let cv::Value::Bytes(_) = e {
-                    }
-                    else {
-                        return false;
-                    }
-                }
-
-                true
-            }
-            else {
-                false
-            }
-        }
-
-        fn to_id(slice: &[u8]) -> Id {
-            let mut res: Id = [0u8;32];
-
-            for (i, b) in slice.iter().enumerate() {
-                if i < 32 { res[i] = *b }
-            }
-
-            res
-        }
-
-        fn decode_id_ary(v: &cv::Value) -> Vec<Id> {
-            match v {
-                cv::Value::Array(_a) => {
-                    _a.iter().map(|e| match e {
-                        cv::Value::Bytes(_b) => to_id(&_b),
-                        _ => panic!("should not happen")
-                    }).collect()
-                },
-                _ => {
-                    panic!("should not happen")
-                }
-            }
-        }
-
+    // decode from commit, not cbor
+    pub fn decode(parents: &[Id], ref_oid: &Id, yaml: &str,
+                  full: bool) -> Result<Anno> {
+        let pid = parents.iter().map(|i| i.clone()).collect();
         let mut res = Anno {
-            pid: vec![],
-            ref_oid: [0u8;32],
-            anno_hash: [0u8;32],
-
-            data: data,
-            mdir: ".".into(),
-            rpath: ".".into()
+            pid,
+            ref_oid: ref_oid.clone(),
+            anno_hash: [0;32],
+            data: BTreeMap::new(),
+            mdir: ".".to_string(),
+            rpath: "".to_string(),
         };
 
-        let m = res.data.remove("_").ok_or(err_simple("format err"))?;
-
-        let v = match m {
-            cv::Value::Array(_v) => _v,
-            _ => return err("meta is not array"),
-        };
-
-        if v.len() != 3 {
-            return err("len of meta array is not 3");
-        }
-
-        if let cv::Value::Bytes(ref _b) = v[1] {
-            res.ref_oid = to_id(_b);
+        // update data
+        if yaml.starts_with("---") {
+            res.parse_yaml_(yaml)?;
         }
         else {
-            return err("ref_oid err");
+            res.parse_yaml_(&("---\n".to_string() + yaml))?;
+        };
+
+        if full {
+            // update anno_hash
+            res.anno_hash = res.get_hash();
+
+            // update rpath
+            if let Some(name) = res.get_name() {
+                res.rpath = name;
+            }
         }
 
-        if !is_id_ary(&v[0]) || !is_id_ary(&v[2]) {
-            return err("pid or ref_pid is not array");
-        }
-
-        res.pid = decode_id_ary(&v[0]);
 
         Ok(res)
     }
