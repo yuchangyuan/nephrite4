@@ -1,5 +1,5 @@
 pub mod cut;
-//pub mod tika;
+pub mod tika;
 
 use nephrite4_common::conf;
 use nephrite4_common::proj;

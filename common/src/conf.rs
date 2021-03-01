@@ -3,6 +3,7 @@ use std::env;
 
 pub const NEPHRITE_ROOT: &'static str = "NEPHRITE_ROOT";
 pub const NEPHRITE_DB_URL: &'static str = "NEPHRITE_DB_URL";
+pub const TIKA_JAR: &'static str = "TIKA_JAR";
 
 #[derive(Debug, Copy, Clone)]
 pub struct Conf {
@@ -18,6 +19,12 @@ impl Conf {
     pub fn db_url(&self) -> String {
         env::var(NEPHRITE_DB_URL)
             .expect(&format!("{} must be set", NEPHRITE_DB_URL))
+            .to_string()
+    }
+
+    pub fn tika_jar(&self) -> String {
+        env::var(TIKA_JAR)
+            .expect(&format!("{} must be set", TIKA_JAR))
             .to_string()
     }
 
