@@ -2,8 +2,20 @@ use nephrite4_common::conf;
 use nephrite4_query::index::tika;
 use nephrite4_query::error::*;
 
-use std::env;
-use log::{info};
+use std::{env, process::{Child, Command, Stdio}, thread, time};
+use log::info;
+
+fn cat(p: &str) -> Result<Child> {
+    let cat = Command::new("cat")
+        .arg(p)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("Failed to start bup process");
+
+    Ok(cat)
+}
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -15,8 +27,18 @@ fn main() -> Result<()> {
     for arg in env::args() {
         info!("parse: {}", &arg);
 
-        let res = tika.parse(&arg)?;
+        let res = tika.parse_file(&arg)?;
         info!("result: {}", &res);
+
+        let mut ch = cat(&arg)?;
+
+        {
+            let stdout = ch.stdout.take().unwrap();
+            let res1 = tika.parse_from_fd(stdout)?;
+            info!("result1: {}", &res1);
+        }
+
+        ch.wait()?;
     }
 
     Ok(())

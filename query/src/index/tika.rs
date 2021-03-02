@@ -4,6 +4,8 @@ use nephrite4_common::conf;
 use j4rs::{Instance, InvocationArg, ClasspathEntry, Jvm, JvmBuilder};
 
 use log::{debug, info};
+use std::{io::Read, os::unix::prelude::{AsRawFd, IntoRawFd}};
+use std::thread;
 
 use crate::error::*;
 
@@ -39,11 +41,21 @@ impl Tika {
 
         info!("tika jvm init done");
 
-
         Ok(Tika { jvm })
     }
 
-    pub fn parse(&self, path: &str) -> Result<String> {
+    pub fn parse_file(&self, path: &str) -> Result<String> {
+        let jvm = &self.jvm;
+
+        let input = jvm.create_instance(
+            "java.io.FileInputStream",
+            &vec![InvocationArg::try_from(path)?],
+            )?;
+
+        Tika::parse_stream(&jvm, input)
+    }
+
+    fn parse_stream(jvm: &Jvm, input: Instance) -> Result<String> {
         /*
         private ContentHandlerFactory getContentHandlerFactory(OutputType type) {
         BasicContentHandlerFactory.HANDLER_TYPE handlerType = BasicContentHandlerFactory.HANDLER_TYPE.IGNORE;
@@ -75,8 +87,6 @@ impl Tika {
 
     }
          */
-        let jvm = &self.jvm;
-
         // init
         let config = jvm.invoke_static(
             "org.apache.tika.config.TikaConfig",
@@ -123,18 +133,13 @@ impl Tika {
                   ja_int(-1),
                   ja_inst(mf)])?;
 
-        {
-            let input = jvm.create_instance(
-                "java.io.FileInputStream",
-                &vec![InvocationArg::try_from(path)?],
-                )?;
 
-            jvm.invoke(&wrapper, "parse",
-                       &vec![ja_inst(input),
-                             ja_inst(dup(jvm, &handler)),
-                             ja_inst(metadata),
-                             ja_inst(context)])?;
-        }
+        jvm.invoke(&wrapper, "parse",
+                   &vec![ja_inst(input),
+                         ja_inst(dup(jvm, &handler)),
+                         ja_inst(metadata),
+                         ja_inst(context)])?;
+
 
         jvm.invoke_static(
             "org.apache.tika.metadata.serialization.JsonMetadataList",
@@ -155,6 +160,21 @@ impl Tika {
         let res_j = jvm.invoke(&writter, "toString", &Vec::new())?;
 
         let res = jvm.to_rust(res_j)?;
+
+        Ok(res)
+    }
+
+    pub fn parse_from_fd<T: AsRawFd>(&self, fd: T) -> Result<String> {
+        let jvm = &self.jvm;
+
+        let path = format!("/dev/fd/{}", fd.as_raw_fd());
+        let input = jvm.create_instance(
+            "java.io.FileInputStream",
+            &vec![InvocationArg::try_from(path)?],
+            )?;
+
+        let res = Tika::parse_stream(&jvm, dup(jvm, &input))?;
+        jvm.invoke(&input, "close", &vec![])?;
 
         Ok(res)
     }
