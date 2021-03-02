@@ -9,37 +9,25 @@ use crate::error::*;
 
 use std::convert::TryFrom;
 
-use xml::reader::{EventReader, XmlEvent};
-
-
 pub struct Tika {
     jvm: Jvm,
 }
 
-fn dup_inst(jvm: &Jvm, i: Instance) -> (Instance, Instance) {
+fn dup(jvm: &Jvm, i: &Instance) -> Instance {
     let kls = i.class_name().to_string();
+    jvm.cast(i, &kls).unwrap()
+}
 
-    debug!("dup inst in {}", &kls);
+fn ja_int(i: i32) -> InvocationArg {
+    InvocationArg::try_from(i).unwrap().into_primitive().unwrap()
+}
 
-    let n = InvocationArg::from(i);
+fn ja_inst(i: Instance) -> InvocationArg {
+    InvocationArg::from(i)
+}
 
-    let al = jvm.create_instance(
-        "java.util.ArrayList", &vec![])
-        .unwrap();
-
-    jvm.invoke(&al, "add", &vec![n]).unwrap();
-
-    let z0 = InvocationArg::try_from(0).unwrap().into_primitive().unwrap();
-    let r0 = jvm.invoke(&al, "get", &vec![z0]).unwrap();
-    let z1 = InvocationArg::try_from(0).unwrap().into_primitive().unwrap();
-    let r1 = jvm.invoke(&al, "get", &vec![z1]).unwrap();
-
-    let r0c = jvm.cast(&r0, &kls).unwrap();
-    let r1c = jvm.cast(&r1, &kls).unwrap();
-
-    debug!("dup inst out {}", &r0c.class_name());
-
-    (r0c, r1c)
+fn ja_bool(i: bool) -> InvocationArg {
+    InvocationArg::try_from(i).unwrap().into_primitive().unwrap()
 }
 
 impl Tika {
@@ -49,8 +37,6 @@ impl Tika {
             .classpath_entry(ClasspathEntry::new(&jar))
             .build()?;
 
-        let jvm = JvmBuilder::new().build()?;
-
         info!("tika jvm init done");
 
 
@@ -59,42 +45,114 @@ impl Tika {
 
     pub fn parse(&self, path: &str) -> Result<String> {
         /*
-        ContentHandler handler = new ToXMLContentHandler();
+        private ContentHandlerFactory getContentHandlerFactory(OutputType type) {
+        BasicContentHandlerFactory.HANDLER_TYPE handlerType = BasicContentHandlerFactory.HANDLER_TYPE.IGNORE;
+        if (type.equals(HTML)) {
+        handlerType = BasicContentHandlerFactory.HANDLER_TYPE.HTML;
+    } else if (type.equals(XML)) {
+        handlerType = BasicContentHandlerFactory.HANDLER_TYPE.XML;
+    } else if (type.equals(TEXT)) {
+        handlerType = BasicContentHandlerFactory.HANDLER_TYPE.TEXT;
+    } else if (type.equals(TEXT_MAIN)) { // <---- NOTE here
+        handlerType = BasicContentHandlerFactory.HANDLER_TYPE.BODY;
+    } else if (type.equals(METADATA)) {
+        handlerType = BasicContentHandlerFactory.HANDLER_TYPE.IGNORE;
+    }
+        return new BasicContentHandlerFactory(handlerType, -1);
+    }
 
-        AutoDetectParser parser = new AutoDetectParser();
         Metadata metadata = new Metadata();
-        try (InputStream stream = ContentHandlerExample.class.getResourceAsStream("test.doc")) {
-        parser.parse(stream, handler, metadata);
-        return handler.toString();
+        RecursiveParserWrapper wrapper = new RecursiveParserWrapper(parser);
+        RecursiveParserWrapperHandler handler =
+                new RecursiveParserWrapperHandler(getContentHandlerFactory(type),
+                        -1, config.getMetadataFilter());
+        try (InputStream input = TikaInputStream.get(url, metadata)) {
+            wrapper.parse(input, handler, metadata, context);
+        }
+        JsonMetadataList.setPrettyPrinting(prettyPrint);
+        Writer writer = getOutputWriter(output, encoding);
+        JsonMetadataList.toJson(handler.getMetadataList(), writer);
+
     }
          */
         let jvm = &self.jvm;
 
-        let handler = jvm.create_instance(
-            "org.apache.tika.sax.ToXMLContentHandler",
+        // init
+        let config = jvm.invoke_static(
+            "org.apache.tika.config.TikaConfig",
+            "getDefaultConfig",
             &Vec::new())?;
 
         let parser = jvm.create_instance(
             "org.apache.tika.parser.AutoDetectParser",
             &Vec::new())?;
 
+        let context = jvm.create_instance(
+            "org.apache.tika.parser.ParseContext",
+            &Vec::new())?;
+
+        //let (parser, parser1) = dup_inst(&jvm, parser);
+
+        let parser_kls = jvm.invoke(&parser, "getClass", &Vec::new())?;
+
+        jvm.invoke(&context, "set",
+                   &vec![ja_inst(parser_kls), ja_inst(dup(jvm, &parser))])?;
+
+        //
         let metadata = jvm.create_instance(
             "org.apache.tika.metadata.Metadata",
             &Vec::new())?;
 
-        let stream = jvm.create_instance(
-            "java.io.FileInputStream",
-            &vec![InvocationArg::try_from(path)?],
-            )?;
+        let tp = jvm.static_class_field(
+            "org.apache.tika.sax.BasicContentHandlerFactory$HANDLER_TYPE",
+            "BODY")?;
 
-        let (handler, handler_dup) = dup_inst(jvm, handler);
+        let handler_fac = jvm.create_instance(
+            "org.apache.tika.sax.BasicContentHandlerFactory",
+            &vec![ja_inst(tp), ja_int(-1)])?; // .BODY
 
-        jvm.invoke(&parser, "parse",
-                   &vec![InvocationArg::from(stream),
-                         InvocationArg::from(handler),
-                         InvocationArg::from(metadata)])?;
+        let mf = jvm.invoke(&config, "getMetadataFilter", &Vec::new())?;
 
-        let res_j = jvm.invoke(&handler_dup, "toString", &Vec::new())?;
+        let wrapper = jvm.create_instance(
+            "org.apache.tika.parser.RecursiveParserWrapper",
+            &vec![ja_inst(parser)])?;
+
+        let handler = jvm.create_instance(
+            "org.apache.tika.sax.RecursiveParserWrapperHandler",
+            &vec![ja_inst(handler_fac),
+                  ja_int(-1),
+                  ja_inst(mf)])?;
+
+        {
+            let input = jvm.create_instance(
+                "java.io.FileInputStream",
+                &vec![InvocationArg::try_from(path)?],
+                )?;
+
+            jvm.invoke(&wrapper, "parse",
+                       &vec![ja_inst(input),
+                             ja_inst(dup(jvm, &handler)),
+                             ja_inst(metadata),
+                             ja_inst(context)])?;
+        }
+
+        jvm.invoke_static(
+            "org.apache.tika.metadata.serialization.JsonMetadataList",
+            "setPrettyPrinting", &vec![ja_bool(false)])?;
+
+        let writter = jvm.create_instance(
+            "java.io.CharArrayWriter",
+            &vec![])?;
+
+        let ml = jvm.invoke(&handler,
+                            "getMetadataList", &vec![])?;
+
+        jvm.invoke_static(
+            "org.apache.tika.metadata.serialization.JsonMetadataList",
+            "toJson",
+            &vec![ja_inst(ml), ja_inst(dup(jvm, &writter))])?;
+
+        let res_j = jvm.invoke(&writter, "toString", &Vec::new())?;
 
         let res = jvm.to_rust(res_j)?;
 

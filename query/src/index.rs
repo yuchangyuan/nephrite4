@@ -120,6 +120,8 @@ pub fn import_anno(conf: &Conf, client: &mut Client,
 // TODO: may better here use ref type for data
 pub fn import_file(conf: &Conf,
                    client: &mut Client, id: &Id,
+                   // NOTE: extracted data maybe recursive
+                   // for tar.gz, each element is a file
                    data: Vec<BTreeMap<String, serde_json::Value>>)
                    -> Result<()> {
     let mut trans = client.transaction()?;
