@@ -31,13 +31,13 @@ fn id2ref(id: &Id) -> &[u8] {
     &id[0..]
 }
 
-pub fn import_anno(conf: &Conf, client: &mut Client,
+pub fn import_anno(client: &mut Client,
                    id: &Id, anno: &anno::Anno)
                    -> Result<()> {
     // insert/update anno
     let mut trans = client.transaction()?;
 
-    let empty_id_vec: Vec<&[u8]> = vec![];
+    let _empty_id_vec: Vec<&[u8]> = vec![];
 
     let pids: Vec<&[u8]> = anno.pid.iter()
         .map(|i| id2ref(i)).collect();
@@ -108,7 +108,7 @@ pub fn import_anno(conf: &Conf, client: &mut Client,
     }
 
 
-    let mut js = serde_json::Value::Object(m);
+    let js = serde_json::Value::Object(m);
 
     trans.execute(concat!("INSERT INTO obj.doc (id, attr) ",
                           "VALUES ($1, $2)"),
@@ -118,7 +118,7 @@ pub fn import_anno(conf: &Conf, client: &mut Client,
 }
 
 // TODO: may better here use ref type for data
-pub fn import_file(conf: &Conf,
+pub fn import_file(_conf: &Conf,
                    client: &mut Client, id: &Id,
                    // NOTE: extracted data maybe recursive
                    // for tar.gz, each element is a file

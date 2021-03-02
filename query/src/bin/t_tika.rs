@@ -41,5 +41,7 @@ fn main() -> Result<()> {
         ch.wait()?;
     }
 
+    thread::sleep(time::Duration::from_secs(1));
+
     Ok(())
 }

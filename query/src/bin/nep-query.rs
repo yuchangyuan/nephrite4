@@ -4,7 +4,6 @@ use clap::{Arg, App, AppSettings};
 
 use nephrite4_common::conf;
 use nephrite4_common::util;
-use nephrite4_common::store;
 
 use util::Id;
 

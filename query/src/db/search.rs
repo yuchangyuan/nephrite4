@@ -50,9 +50,9 @@ pub fn to_search(s: &str) -> Search {
 
 // TODO: fix for '"' in tag
 pub fn gen_sql(s: &Search) -> String {
-    fn quote(s: &str) -> String {
+    /*fn quote(s: &str) -> String {
         s.replace("'", "''")
-    }
+    }*/
 
     match s {
         &Search::Tag(ref x, b) => {

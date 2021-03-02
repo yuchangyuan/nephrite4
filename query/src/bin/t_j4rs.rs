@@ -1,7 +1,6 @@
-use j4rs::{Instance, InvocationArg, Jvm, JvmBuilder};
+use j4rs::JvmBuilder;
 
 use j4rs::errors as jerr;
-use std::io;
 
 use std::{thread, time};
 

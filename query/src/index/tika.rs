@@ -1,11 +1,9 @@
-use nephrite4_common::util;
 use nephrite4_common::conf;
 
 use j4rs::{Instance, InvocationArg, ClasspathEntry, Jvm, JvmBuilder};
 
-use log::{debug, info};
-use std::{collections::BTreeMap, io::Read, os::unix::prelude::{AsRawFd, IntoRawFd}};
-use std::thread;
+use log::info;
+use std::{collections::BTreeMap, os::unix::prelude::AsRawFd};
 
 use crate::error::*;
 
@@ -189,19 +187,18 @@ impl Tika {
 fn try_fix_mp3(s: &str) -> Option<String> {
     // try iconv -t iso-8859-1 | iconv -f gbk
     match ISO_8859_1.encode(&s, EncoderTrap::Strict)
-        .map(|b|
-             GB18030.decode(&b, DecoderTrap::Strict)) {
+        .map(|b| GB18030.decode(&b, DecoderTrap::Strict)) {
             Ok(Ok(s1)) => Some(s1),
-            _ => None
-        }
+            _ => None,
+    }
 }
 
 pub fn tika_res(i: &str) -> Result<Vec<BTreeMap<String, serde_json::Value>>> {
-    let mut json : Vec<BTreeMap<String, serde_json::Value>> =
+    let json : Vec<BTreeMap<String, serde_json::Value>> =
         serde_json::from_slice(i.as_bytes())?;
 
     // NOTE: we only take first element, avoid content of compressed file
-    let mut map_opt = json.into_iter().next();
+    let map_opt = json.into_iter().next();
 
     let res = match map_opt {
         Some(mut map) => {

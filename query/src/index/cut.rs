@@ -1,7 +1,5 @@
 use crate::db::types::TsVector;
 
-use serde_json;
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use lazy_static::lazy_static;
@@ -14,7 +12,7 @@ use rust_stemmers::{Algorithm, Stemmer};
 use notmecab::{Blob, Dict};
 
 use whatlang;
-use whatlang::{Info, Lang};
+use whatlang::Lang;
 
 use log::debug;
 use substring::Substring;
@@ -183,7 +181,7 @@ pub fn cut(_mt: &str, c: &str) -> Vec<(u64, TsVector)> {
     let data: Vec<(String, u64)> =
         cut_ln(&l1).into_iter().map(|(a,b)| (a, b as u64)).collect();
 
-    let mut d1: &mut BTreeMap<String, BTreeSet<(u8, u16)>> = &mut BTreeMap::new();
+    let d1: &mut BTreeMap<String, BTreeSet<(u8, u16)>> = &mut BTreeMap::new();
 
     for (v, p) in data.into_iter() {
         if p >= rel + 16384 {
@@ -192,9 +190,9 @@ pub fn cut(_mt: &str, c: &str) -> Vec<(u64, TsVector)> {
             d1.clear();
         }
 
-        let mut slen = 0;
+        let slen: usize;
         {
-            let mut s = d1.entry(v).or_insert(BTreeSet::new());
+            let s = d1.entry(v).or_insert(BTreeSet::new());
             s.insert((0u8, 1 + p as u16));
             slen = s.len();
         }
