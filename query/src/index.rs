@@ -1,7 +1,7 @@
 pub mod cut;
 pub mod tika;
 
-use nephrite4_common::conf;
+use nephrite4_common::{conf, store};
 use nephrite4_common::proj;
 use nephrite4_common::util;
 
@@ -15,12 +15,12 @@ use conf::Conf;
 use util::Id;
 use proj::anno;
 
-use std::io;
+use std::{collections::BTreeSet, io};
 
 use std::collections::BTreeMap;
 use std::iter::FromIterator;
 
-use crate::error::*;
+use crate::{db, error::*};
 
 const ANNO_NAME: &'static str = "name";
 const ANNO_NOTE: &'static str = "note";
@@ -31,9 +31,24 @@ fn id2ref(id: &Id) -> &[u8] {
     &id[0..]
 }
 
-pub fn import_anno(client: &mut Client,
-                   id: &Id, anno: &anno::Anno)
-                   -> Result<()> {
+fn oid_exist_(client: &mut Client, id: &Id) -> Result<bool> {
+    let id_ref: &[u8] = &id[..];
+    for _row in client.query("select id from obj.anno where id = $1",
+                            &[&id_ref])? {
+        return Ok(true)
+    }
+
+    for _row in client.query("select id from obj.file where id = $1",
+                            &[&id_ref])? {
+        return Ok(true)
+    }
+
+    return Ok(false)
+
+}
+fn import_anno_(client: &mut Client,
+                id: &Id, anno: &anno::Anno)
+                -> Result<()> {
     // insert/update anno
     let mut trans = client.transaction()?;
 
@@ -117,13 +132,11 @@ pub fn import_anno(client: &mut Client,
     Ok(trans.commit()?)
 }
 
-// TODO: may better here use ref type for data
-pub fn import_file(_conf: &Conf,
-                   client: &mut Client, id: &Id,
-                   // NOTE: extracted data maybe recursive
-                   // for tar.gz, each element is a file
-                   data: Vec<BTreeMap<String, serde_json::Value>>)
-                   -> Result<()> {
+fn import_file_(client: &mut Client, id: &Id,
+                // NOTE: extracted data maybe recursive
+                // for tar.gz, each element is a file
+                data: Vec<BTreeMap<String, serde_json::Value>>)
+                -> Result<()> {
     let mut trans = client.transaction()?;
     let id_ref = id2ref(id);
 
@@ -175,4 +188,105 @@ pub fn import_file(_conf: &Conf,
     }
 
     Ok(trans.commit()?)
+}
+
+pub struct Indexer {
+    pub store: store::Store,
+    pub client: Client,
+    pub tika: tika::Tika,
+}
+
+impl Indexer {
+    pub fn new(conf: &Conf) -> Result<Indexer> {
+        let store = store::Store::new(conf)?;
+        let client = db::client(conf)?;
+        let tika = tika::Tika::new(conf)?;
+
+        Ok(Indexer { store, client, tika })
+    }
+
+    // import single "file"
+    pub fn import_file(&mut self, id: &Id) -> Result<()> {
+        let mut bup = self.store.spawn_bup_join(id)?;
+
+        let res: String;
+        {
+            let stdout = bup.stdout.take().unwrap();
+            res = self.tika.parse_from_fd(stdout)?;
+        }
+        bup.wait()?;
+
+        let json = tika::tika_res(&res)?;
+
+        import_file_(&mut self.client, &id, json)?;
+
+        Ok(())
+    }
+
+    pub fn import_anno(&mut self, id: &Id, with_file: bool) -> Result<()> {
+        let anno = self.store.read_commit(id, false)?;
+
+        import_anno_(&mut self.client, id, &anno)?;
+
+        if with_file {
+            self.import_file(&anno.ref_oid)?;
+        }
+
+        Ok(())
+    }
+
+    fn walk_all(&self, from: &Id) -> Result<Vec<(Id, Id)>> {
+        let mut res = vec![];
+        let mut remain = vec![from.clone()];
+
+        while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+
+            let anno = self.store.read_commit(&id, false)?;
+
+            let tree = anno.ref_oid;
+            let pid = anno.pid;
+
+            res.push((id, tree));
+
+            for x in pid.into_iter() {
+                remain.push(x);
+            }
+        }
+
+        Ok(res)
+    }
+
+    pub fn walk(&self, from: &Id, until: &Option<Id>) -> Result<Vec<(Id, Id)>> {
+        if let None = until {
+            return self.walk_all(from);
+        }
+
+        let mut stop_set: BTreeSet<Id> = self.walk_all(&until.unwrap())?.into_iter()
+            .map(|(x, _)| x).collect();
+
+        let mut res = vec![];
+        let mut remain = vec![from.clone()];
+
+        while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+            // this branch done
+            if stop_set.contains(&id) { continue; }
+
+            let anno = self.store.read_commit(&id, false)?;
+
+            let tree = anno.ref_oid;
+            let pid = anno.pid;
+
+            res.push((id.clone(), tree));
+
+            for x in pid.into_iter() {
+                remain.push(x)
+            }
+
+            stop_set.insert(id);
+        }
+
+        Ok(vec![])
+    }
 }

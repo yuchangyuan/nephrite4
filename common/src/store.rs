@@ -1,4 +1,4 @@
-use std::process::{Command, Stdio};
+use std::process::{self, Command, Stdio};
 
 use crate::util;
 use crate::conf::Conf;
@@ -39,8 +39,6 @@ const ENV_BUP_FORCE_TTY: &'static str = "BUP_FORCE_TTY";
 const ENV_GIT_DIR: &'static str = "GIT_DIR";
 const ENV_GIT_AUTHOR_DATE: &'static str = "GIT_AUTHOR_DATE";
 const ENV_GIT_COMMITTER_DATE: &'static str = "GIT_COMMITTER_DATE";
-
-const INC_REF: &'static str = "refs/heads/inc";
 
 const OID_LEN: usize = 32;
 
@@ -113,6 +111,8 @@ pub struct Commit {
 }
 
 impl Store {
+    pub const INC_REF: &'static str = "refs/heads/inc";
+
     pub fn new(conf: &Conf) -> Result<Store> {
         let mut res = Store {
             root: conf.root(),
@@ -145,7 +145,7 @@ impl Store {
         Ok(())
     }
 
-    fn show_ref(&self, git_ref: &str) -> Result<Option<Id>> {
+    pub fn show_ref(&self, git_ref: &str) -> Result<Option<Id>> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("show-ref")
@@ -425,7 +425,7 @@ impl Store {
                  &hex::encode(tree));
 
         // update inc
-        let inc = self.show_ref(INC_REF)?;
+        let inc = self.show_ref(Self::INC_REF)?;
         let inc_parent = match inc {
             Some(id) => vec![id],
             None => vec![],
@@ -434,7 +434,7 @@ impl Store {
         let inc_commit = self.commit_tree(&inc_parent, &tree,
                                      self.date, "")?;
 
-        self.update_ref(INC_REF, &inc_commit)?;
+        self.update_ref(Self::INC_REF, &inc_commit)?;
 
         println!("commit {} {}",
                  &util::to_zbase32(&inc_commit)[..8],
@@ -444,6 +444,20 @@ impl Store {
 
 
         Ok(res)
+    }
+
+    pub fn spawn_bup_join(&self, id: &Id) -> Result<process::Child> {
+        let bup = Command::new(BUP_CMD)
+            .env(ENV_BUP_DIR, self.root.clone())
+            .env("LC_ALL", "C")
+            .arg("join")
+            .arg(hex::encode(id))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+
+        Ok(bup)
     }
 
     pub fn import(&self, path: &str) -> Result<Id> {

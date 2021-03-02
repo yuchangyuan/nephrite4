@@ -44,3 +44,7 @@ zstd = "0.6"
 # tika
 j4rs = "0.13"
 encoding = "0.2"
+
+
+hex = "0.4"
+

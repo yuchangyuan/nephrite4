@@ -914,6 +914,7 @@ dependencies = [
  "dotenv",
  "encoding",
  "env_logger",
+ "hex",
  "j4rs",
  "jieba-rs",
  "lazy_static",
