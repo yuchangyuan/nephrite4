@@ -912,6 +912,7 @@ dependencies = [
  "bytes",
  "clap",
  "dotenv",
+ "encoding",
  "env_logger",
  "j4rs",
  "jieba-rs",

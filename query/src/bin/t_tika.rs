@@ -34,8 +34,8 @@ fn main() -> Result<()> {
 
         {
             let stdout = ch.stdout.take().unwrap();
-            let res1 = tika.parse_from_fd(stdout)?;
-            info!("result1: {}", &res1);
+            let res1 = tika::tika_res(&tika.parse_from_fd(stdout)?)?;
+            info!("result1: {:?}", &res1);
         }
 
         ch.wait()?;

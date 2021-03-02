@@ -4,12 +4,17 @@ use nephrite4_common::conf;
 use j4rs::{Instance, InvocationArg, ClasspathEntry, Jvm, JvmBuilder};
 
 use log::{debug, info};
-use std::{io::Read, os::unix::prelude::{AsRawFd, IntoRawFd}};
+use std::{collections::BTreeMap, io::Read, os::unix::prelude::{AsRawFd, IntoRawFd}};
 use std::thread;
 
 use crate::error::*;
 
 use std::convert::TryFrom;
+
+use encoding::Encoding;
+use encoding::{EncoderTrap, DecoderTrap};
+use encoding::all::ISO_8859_1;
+use encoding::all::GB18030;
 
 pub struct Tika {
     jvm: Jvm,
@@ -178,4 +183,58 @@ impl Tika {
 
         Ok(res)
     }
+}
+
+
+fn try_fix_mp3(s: &str) -> Option<String> {
+    // try iconv -t iso-8859-1 | iconv -f gbk
+    match ISO_8859_1.encode(&s, EncoderTrap::Strict)
+        .map(|b|
+             GB18030.decode(&b, DecoderTrap::Strict)) {
+            Ok(Ok(s1)) => Some(s1),
+            _ => None
+        }
+}
+
+pub fn tika_res(i: &str) -> Result<Vec<BTreeMap<String, serde_json::Value>>> {
+    let mut json : Vec<BTreeMap<String, serde_json::Value>> =
+        serde_json::from_slice(i.as_bytes())?;
+
+    // NOTE: we only take first element, avoid content of compressed file
+    let mut map_opt = json.into_iter().next();
+
+    let res = match map_opt {
+        Some(mut map) => {
+            // only for mp3
+            // map is &HashMap<String, serde_json::Value>
+            let t = map.get("Content-Type").map(|x| x.clone());
+
+            let mp3 = serde_json::Value::String("audio/mpeg".into());
+            if t == Some(mp3) {
+                //let mut m1: HashMap<String, serde_json::Value> =
+                //HashMap::new();
+                for (_, v) in map.iter_mut() {
+                    let mut v1: Option<String> = None;
+
+                    match v {
+                        &mut serde_json::Value::String(ref s) => {
+                            v1 = try_fix_mp3(s);
+                        },
+                        _ => ()
+                    }
+
+                    match v1 {
+                        Some(s) => *v = serde_json::Value::String(s),
+                        _ => ()
+                    }
+                }
+            }
+
+            vec![map]
+        },
+
+        _ => vec![]
+    };
+
+    Ok(res)
 }

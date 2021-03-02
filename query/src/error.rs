@@ -55,6 +55,12 @@ impl From<cerr::Error> for Error {
     }
 }
 
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        From::from(cerr::Error::JSON(e))
+    }
+}
+
 pub fn err<T>(msg: &str) -> Result<T> {
     Err(err_simple(msg))
 }

@@ -5,6 +5,7 @@ use core::result;
 
 use serde_yaml;
 use serde_cbor;
+use serde_json;
 
 #[derive(Debug)]
 pub enum Error {
@@ -12,6 +13,7 @@ pub enum Error {
     IO(io::Error),
     YAML(serde_yaml::Error),
     CBOR(serde_cbor::Error),
+    JSON(serde_json::Error),
 }
 
 impl fmt::Display for Error {
@@ -20,6 +22,7 @@ impl fmt::Display for Error {
             Error::Simple(msg) => write!(f, "SimpleError: {}", msg),
             Error::YAML(e) => e.fmt(f),
             Error::CBOR(e) => e.fmt(f),
+            Error::JSON(e) => e.fmt(f),
             Error::IO(e) => e.fmt(f)
         }
     }
@@ -31,6 +34,7 @@ impl error::Error for Error {
             Error::Simple(_) => None,
             Error::YAML(e) => Some(e),
             Error::CBOR(e) => Some(e),
+            Error::JSON(e) => Some(e),
             Error::IO(e) => Some(e),
         }
     }
@@ -53,6 +57,12 @@ impl From<serde_yaml::Error> for Error {
 impl From<serde_cbor::Error> for Error {
     fn from(e: serde_cbor::Error) -> Self {
         Error::CBOR(e)
+    }
+}
+
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        Error::JSON(e)
     }
 }
 
