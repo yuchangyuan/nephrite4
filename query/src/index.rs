@@ -194,6 +194,8 @@ pub struct Indexer {
     pub store: store::Store,
     pub client: Client,
     pub tika: tika::Tika,
+
+    done_set: BTreeSet<Id>,
 }
 
 impl Indexer {
@@ -202,7 +204,13 @@ impl Indexer {
         let client = db::client(conf)?;
         let tika = tika::Tika::new(conf)?;
 
-        Ok(Indexer { store, client, tika })
+        let done_set = BTreeSet::new();
+
+        Ok(Indexer { store, client, tika, done_set })
+    }
+
+    pub fn is_done(&self, id: &Id) -> bool {
+        self.done_set.contains(id)
     }
 
     // import single "file"
