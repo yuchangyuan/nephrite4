@@ -116,7 +116,7 @@ pub fn search(client: &mut Client, patt: &[Search], all: bool, limit: i64)
     let mut y = 0;
     let mut sql = format!(
         concat!(
-            "select distinct x.id, x.rid from ",
+            "select distinct x.id, x.fid from ",
             "(select id, rid from obj.anno ",
             "{}",
             ") as x"),
@@ -131,7 +131,7 @@ pub fn search(client: &mut Client, patt: &[Search], all: bool, limit: i64)
     sql += " where ";
 
     for i in 0..y {
-        sql = format!("{} y{}.fid = x.rid and ",
+        sql = format!("{} y{}.fid = x.fid and ",
                       sql, i);
     }
 
@@ -185,7 +185,7 @@ pub fn get_attr(client: &mut Client, id: &Id)
 pub fn get_attr_f2a(client: &mut Client, id: &Id, all: bool)
                     -> Result<Vec<Map<String, Value>>> {
     let mut sql = concat!("select distinct doc.attr from obj.doc, obj.anno ",
-                          "where anno.rid = $1 and anno.id = doc.id").to_string();
+                          "where anno.fid = $1 and anno.id = doc.id").to_string();
     if !all {
         sql = sql + " and anno.obsolete = false";
     }

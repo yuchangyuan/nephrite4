@@ -58,7 +58,7 @@ fn import_anno_(client: &mut Client,
         .map(|i| id2ref(i)).collect();
 
     trans.execute(
-        concat!("insert into obj.anno (id, pid, rid) ",
+        concat!("insert into obj.anno (id, pid, fid) ",
                 "values ($1, $2, $3) ",
                 "on conflict (id) do nothing"),
         &[&id2ref(id),
