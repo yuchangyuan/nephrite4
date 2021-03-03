@@ -1,4 +1,4 @@
-use std::process::{self, Command, Stdio};
+use std::{collections::BTreeSet, process::{self, Command, Stdio}};
 
 use crate::util;
 use crate::conf::Conf;
@@ -515,4 +515,72 @@ impl Store {
 
         Ok(res)
     }
+
+    fn walk_all(&self, from: &Id) -> Result<Vec<(Id, Id)>> {
+        let mut res = vec![];
+        let mut remain = vec![from.clone()];
+
+        while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+
+            let anno = self.read_commit(&id, false)?;
+
+            debug!("walk: anno = {:?}", anno);
+
+            let tree = anno.ref_oid;
+            let pid = anno.pid;
+
+            res.push((id, tree));
+
+            for x in pid.into_iter() {
+                remain.push(x);
+            }
+        }
+
+        Ok(res)
+    }
+
+    // TODO: add 'no_dup' mode
+    // when no_dup is true, already walked result will add to stop_set
+    // when no_dup is false, stop_set will keep unchange.
+    // use no_dup = false, and reverse result order to ensure
+    // any indexed oid always has indexed parent,
+    // when interrupt happend during index
+    pub fn walk(&self, from: &Id, until: &Option<Id>) -> Result<Vec<(Id, Id)>> {
+        if let None = until {
+            return self.walk_all(from);
+        }
+
+        let mut stop_set: BTreeSet<Id> = self.walk_all(&until.unwrap())?.into_iter()
+            .map(|(x, _)| x).collect();
+
+        let mut res = vec![];
+        let mut remain = vec![from.clone()];
+
+        debug!("stop_set: {:?}", stop_set);
+
+        while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+            // this branch done
+            if stop_set.contains(&id) { continue; }
+
+            let anno = self.read_commit(&id, false)?;
+
+            debug!("walk: anno = {:?}", anno);
+
+            let tree = anno.ref_oid;
+            let pid = anno.pid;
+
+            res.push((id.clone(), tree));
+
+            for x in pid.into_iter() {
+                remain.push(x)
+            }
+
+            stop_set.insert(id);
+        }
+
+        Ok(vec![])
+    }
+
 }
