@@ -19,7 +19,7 @@ fn main() -> Result<()> {
 
     let inc_ref = store.show_ref(Store::INC_REF)?.unwrap();
 
-    let list = store.walk(&inc_ref, &None)?;
+    let list = store.walk(&inc_ref, &None, true)?;
 
     for (commit, tree) in list {
         println!("{}: {}", hex::encode(commit), hex::encode(tree));

@@ -546,7 +546,7 @@ impl Store {
     // use no_dup = false, and reverse result order to ensure
     // any indexed oid always has indexed parent,
     // when interrupt happend during index
-    pub fn walk(&self, from: &Id, until: &Option<Id>) -> Result<Vec<(Id, Id)>> {
+    pub fn walk(&self, from: &Id, until: &Option<Id>, no_dup: bool) -> Result<Vec<(Id, Id)>> {
         if let None = until {
             return self.walk_all(from);
         }
@@ -577,7 +577,7 @@ impl Store {
                 remain.push(x)
             }
 
-            stop_set.insert(id);
+            if !no_dup { stop_set.insert(id); }
         }
 
         Ok(vec![])
