@@ -214,16 +214,19 @@ impl Store {
             ln = "";
             if let Some(n) = t {
                 ln = &slice[..n+1];
-                slice = &slice[n..];
+                slice = &slice[n+1..];
             }
 
             let ln1 = ln.trim();
 
+            debug!("read_commit: line = {}", ln1);
             if ln1.starts_with("tree ") {
                 tree = util::to_id(&hex::decode(ln1[5..].trim()).unwrap());
+                debug!("read_commit: tree = {}", hex::encode(&tree));
             }
             else if ln1.starts_with("parent ") {
                 let pid = util::to_id(&hex::decode(ln1[6..].trim()).unwrap());
+                debug!("read_commit: parent = {}", hex::encode(&pid));
                 pid_list.push(pid);
             }
             else if ln1.is_empty() {
@@ -256,11 +259,13 @@ impl Store {
         loop {
             if !next_byte_match(b' ', &mut idx1) { break; }
 
+            debug!("mode: raw = {:?}, idx0 {}, idx1 {}", raw, idx0, idx1);
             let mode = str::from_utf8(&raw[idx0..idx1]).unwrap();
             idx0 = idx1 + 1;
             idx1 = idx0;
 
             if !next_byte_match(0, &mut idx1) { break; }
+            debug!("name: raw = {:?}, idx0 {}, idx1 {}", raw, idx0, idx1);
             let name = str::from_utf8(&raw[idx0 .. idx1]).unwrap();
 
             idx0 = idx1 + 1;
@@ -268,9 +273,11 @@ impl Store {
 
             let id = util::to_id(&raw[idx0 .. idx1]);
 
-            let mode_i = ("0o".to_string() + &mode[..]).parse::<i32>().unwrap();
+            let mode_i = i32::from_str_radix(&mode, 8).unwrap();
 
-            res.push((ObjType::from_mode(mode_i), name.to_string(), id))
+            res.push((ObjType::from_mode(mode_i), name.to_string(), id));
+
+            idx0 = idx1;
         }
 
         Ok(res)
