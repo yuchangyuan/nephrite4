@@ -63,13 +63,13 @@ fn import_anno_(client: &mut Client,
                 "on conflict (id) do nothing"),
         &[&id2ref(id),
           &pids,
-          &id2ref(&anno.ref_oid)])?;
+          &id2ref(&anno.fid)])?;
 
     trans.execute(
         concat!("insert into obj.file (id) ",
                 "values ($1) ",
                 "on conflict (id) do nothing"),
-        &[&id2ref(&anno.ref_oid)])?;
+        &[&id2ref(&anno.fid)])?;
 
     trans.execute("DELETE FROM obj.doc where id = $1",
                   &[&id2ref(id)])?;
@@ -229,7 +229,7 @@ impl Indexer {
         import_anno_(&mut self.client, id, &anno)?;
 
         if with_file {
-            self.import_file(&anno.ref_oid)?;
+            self.import_file(&anno.fid)?;
         }
 
         Ok(())

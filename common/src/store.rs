@@ -373,7 +373,7 @@ impl Store {
         let yaml = anno.gen_yaml()?;
         let msg = yaml.trim_start_matches('-').trim();
 
-        self.commit_tree(&anno.pid, &anno.ref_oid, time, msg)
+        self.commit_tree(&anno.pid, &anno.fid, time, msg)
     }
 
     pub fn commit(&mut self, manifest: &mut Manifest) -> Result<Commit> {
@@ -387,7 +387,7 @@ impl Store {
             //
             let func = |st: St, an: &mut Anno| -> Result<()> {
                 if st == St::MFile {
-                    an.ref_oid = self.import(an.get_file_path()
+                    an.fid = self.import(an.get_file_path()
                                              .to_str()
                                              .unwrap())?;
                 };
@@ -527,7 +527,7 @@ impl Store {
 
             debug!("walk: anno = {:?}", anno);
 
-            let tree = anno.ref_oid;
+            let tree = anno.fid;
             let pid = anno.pid;
 
             res.push((id, tree));
@@ -568,7 +568,7 @@ impl Store {
 
             debug!("walk: anno = {:?}", anno);
 
-            let tree = anno.ref_oid;
+            let tree = anno.fid;
             let pid = anno.pid;
 
             res.push((id.clone(), tree));

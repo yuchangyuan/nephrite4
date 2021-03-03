@@ -32,7 +32,7 @@ fn main() {
 
         println!("{} {} -> {} : {:?}",
                  &pid0[..8],
-                 &util::to_zbase32(&anno.ref_oid)[..8],
+                 &util::to_zbase32(&anno.fid)[..8],
                  st_sym,
                  name);
     }

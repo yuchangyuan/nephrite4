@@ -48,7 +48,7 @@ pub fn st2chr(st: St) -> String {
 pub struct Anno {
     // meta
     pub pid: Vec<Id>, // may empty
-    pub ref_oid: Id, // use ref_oid when mtime match
+    pub fid: Id, // use fid when mtime match
     pub anno_hash: Id, // use to check whether yaml/meta need update
 
     // yaml
@@ -254,7 +254,7 @@ impl Anno {
                         self.pid.push(id);
                     }
                     else if t == 2 {
-                        self.ref_oid = id;
+                        self.fid = id;
                     }
                     else if t == 3 {
                         self.anno_hash = id;
@@ -348,7 +348,7 @@ impl Anno {
         let mut res = Anno {
             pid: vec![],
             anno_hash: [0;32],
-            ref_oid: [0;32],
+            fid: [0;32],
 
             data: BTreeMap::new(),
             mdir: mdir.into(),
@@ -405,7 +405,7 @@ impl Anno {
             }
 
             meta.write_fmt(format_args!("\n# ref_oid\n{}\n",
-                                        util::to_zbase32(&self.ref_oid)))?;
+                                        util::to_zbase32(&self.fid)))?;
 
             meta.write_fmt(format_args!("\n# anno_hash\n{}\n",
                                         util::to_zbase32(&self.anno_hash)))?;
@@ -442,7 +442,7 @@ impl Anno {
         let pid = parents.iter().map(|i| i.clone()).collect();
         let mut res = Anno {
             pid,
-            ref_oid: ref_oid.clone(),
+            fid: ref_oid.clone(),
             anno_hash: [0;32],
             data: BTreeMap::new(),
             mdir: ".".to_string(),
@@ -508,7 +508,7 @@ impl Anno {
 
     // NOTE: when file change, mtime or size part of anno will change
     pub fn status(&self) -> Result<St> {
-        if self.ref_oid == [0;32] { return Ok(St::MFile); }
+        if self.fid == [0;32] { return Ok(St::MFile); }
         if self.pid.is_empty() { return Ok(St::MFile); }
 
         let meta_m = fs::metadata(self.get_meta_path())?.modified()?;
