@@ -1,7 +1,6 @@
 pub mod cut;
 pub mod tika;
 
-use log::info;
 use nephrite4_common::{conf, store::{self, ObjType}};
 use nephrite4_common::proj;
 use nephrite4_common::util;
@@ -252,13 +251,18 @@ impl Indexer {
         list.reverse();
 
         for (commit, tree) in list {
-            info!("index changeset {}: {}",
+            println!("index changeset {}: {}",
                      &hex::encode(commit)[..10],
                      &hex::encode(tree)[..10]);
 
             for (tp, _name, id) in self.store.read_tree(&tree)? {
                 if let ObjType::Commit = tp {
-                    info!("  import {}", &hex::encode(id)[..10]);
+                    if let Ok(_) = oid_exist_(&mut self.client, &id) {
+                        println!("  exist {}, skip", &hex::encode(id)[..10]);
+                        continue;
+                    }
+
+                    println!("  import {}", &hex::encode(id)[..10]);
                     self.import_anno(&id, true)?;
                 }
             }
