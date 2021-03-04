@@ -42,7 +42,24 @@ impl Tika {
             .classpath_entry(ClasspathEntry::new(&jar))
             .build()?;
 
-        info!("tika jvm init done");
+        info!("jvm init done");
+
+        // TODO, parse a empty stream
+        let init_str = jvm.create_instance(
+            "java.lang.String",
+            &vec![InvocationArg::try_from("init")?],
+            )?;
+
+        let init_bytes = jvm.invoke(&init_str, "getBytes",
+                                    &vec![InvocationArg::try_from("UTF-8")?])?;
+
+        let is = jvm.create_instance(
+            "java.io.ByteArrayInputStream",
+            &vec![ja_inst(init_bytes)])?;
+
+        Self::parse_stream(&jvm, is)?;
+
+        info!("parser init done");
 
         Ok(Tika { jvm })
     }
