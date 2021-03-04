@@ -117,7 +117,7 @@ pub fn search(client: &mut Client, patt: &[Search], all: bool, limit: i64)
     let mut sql = format!(
         concat!(
             "select distinct x.id, x.fid from ",
-            "(select id, rid from obj.anno ",
+            "(select id, fid from obj.anno ",
             "{}",
             ") as x"),
         if all { "" } else { "where obsolete = false" });
