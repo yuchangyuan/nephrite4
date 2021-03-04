@@ -1,6 +1,7 @@
 pub mod cut;
 pub mod tika;
 
+use log::debug;
 use nephrite4_common::{conf, store::{self, ObjType}};
 use nephrite4_common::proj;
 use nephrite4_common::util;
@@ -44,8 +45,18 @@ fn oid_exist_(client: &mut Client, id: &Id) -> Result<bool> {
     }
 
     return Ok(false)
-
 }
+
+fn last_anno_(client: &mut Client) -> Result<Option<Id>> {
+    for row in client.query(
+        "select id from obj.anno order by modified desc limit 1", &[])? {
+        let id: Vec<u8> = row.get(0);
+        return Ok(Some(util::to_id(&id)));
+    }
+
+    Ok(None)
+}
+
 fn import_anno_(client: &mut Client,
                 id: &Id, anno: &anno::Anno)
                 -> Result<()> {
@@ -269,5 +280,38 @@ impl Indexer {
         }
 
         Ok(())
+    }
+
+    pub fn index(&mut self, from_cset_opt: &Option<Id>) -> Result<usize> {
+        let mut res = 0;
+        let last_anno_opt = last_anno_(&mut self.client)?;
+
+        match last_anno_opt {
+            Some(x) => debug!("index: last anno is {}", &hex::encode(&x[..5])),
+            _ => debug!("index: last anno is None"),
+        };
+
+        let from_cset = from_cset_opt.unwrap_or(
+            self.store.show_ref(store::Store::INC_REF)?.unwrap());
+
+        let mut list = self.store.walk_until(&from_cset, &last_anno_opt)?;
+
+        list.reverse();
+
+        for (cid, aid_set) in list.into_iter() {
+            println!("index changeset {}", &hex::encode(&cid[..5]));
+            for aid in aid_set {
+                if oid_exist_(&mut self.client, &aid)? {
+                    println!("  {} exist, skip", &hex::encode(&aid[..5]));
+                    continue;
+                }
+
+                self.import_anno(&aid, true)?;
+                println!("  {} imported", &hex::encode(&aid[..5]));
+                res += 1;
+            }
+        }
+
+        Ok(res)
     }
 }

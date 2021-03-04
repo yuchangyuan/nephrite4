@@ -580,7 +580,57 @@ impl Store {
             if !no_dup { stop_set.insert(id); }
         }
 
-        Ok(vec![])
+        Ok(res)
     }
 
+    // return: cset id: anno id set
+    pub fn walk_until(&self,
+                      from_cset: &Id,
+                      until_anno: &Option<Id>) -> Result<Vec<(Id, BTreeSet<Id>)>> {
+        let mut res = vec![];
+        let mut remain = vec![from_cset.clone()];
+
+        'outer: while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+
+            // this branch done
+            let anno = self.read_commit(&id, false)?;
+
+            debug!("walk: anno = {:?}", anno);
+
+            let tid = anno.fid;
+            let pid = anno.pid;
+
+            let mut tree = BTreeSet::new();
+
+            if let Some(anno) = until_anno {
+                tree = self.read_tree(&tid)?.into_iter()
+                    .filter(|(tp, _, _)|
+                            if let ObjType::Commit = tp { true }
+                            else {false})
+                    .map(|(_, _, aid)| aid)
+                    .collect();
+
+                if tree.contains(anno) {
+                    debug!("stop at {}: {}", &hex::encode(&id)[..10],
+                           &hex::encode(&tid)[..10]);
+                        continue 'outer;
+                }
+            }
+
+            res.push((id.clone(), tree));
+
+            for x in pid.into_iter() {
+                remain.push(x)
+            }
+        }
+
+        Ok(res)
+    }
+
+}
+
+#[cfg(test)]
+mod test {
+    // TODO, test walk
 }

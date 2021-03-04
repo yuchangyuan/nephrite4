@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     let conf = conf::Conf::read();
     let mut indexer = index::Indexer::new(&conf)?;
 
-    indexer.index_all()?;
+    indexer.index(&None)?;
 
     Ok(())
 }
