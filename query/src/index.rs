@@ -1,7 +1,8 @@
 pub mod cut;
 pub mod tika;
 
-use nephrite4_common::{conf, store};
+use log::info;
+use nephrite4_common::{conf, store::{self, ObjType}};
 use nephrite4_common::proj;
 use nephrite4_common::util;
 
@@ -243,4 +244,26 @@ impl Indexer {
         Ok(())
     }
 
+    pub fn index_all(&mut self) -> Result<()> {
+        let inc_ref = self.store.show_ref(store::Store::INC_REF)?.unwrap();
+
+        let mut list = self.store.walk(&inc_ref, &None, true)?;
+
+        list.reverse();
+
+        for (commit, tree) in list {
+            info!("index changeset {}: {}",
+                     &hex::encode(commit)[..10],
+                     &hex::encode(tree)[..10]);
+
+            for (tp, _name, id) in self.store.read_tree(&tree)? {
+                if let ObjType::Commit = tp {
+                    info!("  import {}", &hex::encode(id)[..10]);
+                    self.import_anno(&id, true)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
