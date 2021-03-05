@@ -2,7 +2,7 @@ pub mod cut;
 pub mod tika;
 
 use log::debug;
-use nephrite4_common::{conf, store::{self, ObjType}};
+use nephrite4_common::{conf, store};
 use nephrite4_common::proj;
 use nephrite4_common::util;
 
@@ -47,7 +47,7 @@ fn oid_exist_(client: &mut Client, id: &Id) -> Result<bool> {
     return Ok(false)
 }
 
-fn last_anno_(client: &mut Client) -> Result<Option<Id>> {
+fn _last_anno_(client: &mut Client) -> Result<Option<Id>> {
     for row in client.query(
         "select id from obj.anno order by modified desc limit 1", &[])? {
         let id: Vec<u8> = row.get(0);
@@ -254,67 +254,6 @@ impl Indexer {
         Ok(())
     }
 
-    pub fn index_all(&mut self) -> Result<()> {
-        let inc_ref = self.store.show_ref(store::Store::INC_REF)?.unwrap();
-
-        let mut list = self.store.walk(&inc_ref, &None, true)?;
-
-        list.reverse();
-
-        for (commit, tree) in list {
-            println!("index changeset {}: {}",
-                     &hex::encode(commit)[..10],
-                     &hex::encode(tree)[..10]);
-
-            for (tp, _name, id) in self.store.read_tree(&tree)? {
-                if let ObjType::Commit = tp {
-                    if let Ok(_) = oid_exist_(&mut self.client, &id) {
-                        println!("  exist {}, skip", &hex::encode(id)[..10]);
-                        continue;
-                    }
-
-                    println!("  import {}", &hex::encode(id)[..10]);
-                    self.import_anno(&id, true)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn index(&mut self, from_cset_opt: &Option<Id>) -> Result<usize> {
-        let mut res = 0;
-        let last_anno_opt = last_anno_(&mut self.client)?;
-
-        match last_anno_opt {
-            Some(x) => println!("last anno is {}", &hex::encode(&x[..5])),
-            _ => println!("last anno is None"),
-        };
-
-        let from_cset = from_cset_opt.unwrap_or(
-            self.store.show_ref(store::Store::INC_REF)?.unwrap());
-
-        let mut list = self.store.walk_until(&from_cset, &last_anno_opt)?;
-
-        list.reverse();
-
-        for (cid, aid_set) in list.into_iter() {
-            println!("index changeset {}", &hex::encode(&cid[..5]));
-            for aid in aid_set {
-                if oid_exist_(&mut self.client, &aid)? {
-                    println!("  {} exist, skip", &hex::encode(&aid[..5]));
-                    continue;
-                }
-
-                self.import_anno(&aid, true)?;
-                println!("  {} imported", &hex::encode(&aid[..5]));
-                res += 1;
-            }
-        }
-
-        Ok(res)
-    }
-
     pub fn index_cset(&mut self, cset: &str) -> Result<usize> {
         let mut list = self.store.walk_cset(cset)?;
         list.reverse();
@@ -350,6 +289,8 @@ impl Indexer {
                  .strip_suffix("/localhost").unwrap()
                  .to_string())
             .collect();
+
+        debug!("index_cset_all: all refs {:?}", refs);
 
         let mut res = 0;
         for r in refs {

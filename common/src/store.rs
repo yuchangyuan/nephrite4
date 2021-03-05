@@ -91,7 +91,6 @@ pub fn ref_local(name: &str) -> String {
 }
 
 impl Store {
-    pub const INC_REF: &'static str = "refs/heads/inc";
     pub const LOCALHOST: &'static str = "localhost";
 
     pub fn new(conf: &Conf) -> Result<Store> {
@@ -436,23 +435,22 @@ impl Store {
                  &util::to_zbase32(&tree)[..8],
                  &hex::encode(tree));
 
-        // update inc
-        let inc = self.show_ref(Self::INC_REF)?;
-        let inc_parent = match inc {
+        // update localhost cset tip
+        let parent = match self.show_ref(&ref_remote(Self::LOCALHOST))? {
             Some(id) => vec![id],
             None => vec![],
         };
 
-        let inc_commit = self.commit_tree(&inc_parent, &tree,
+        let cset_commit = self.commit_tree(&parent, &tree,
                                      self.date, "")?;
 
-        self.update_ref(&ref_remote(Self::LOCALHOST), &inc_commit)?;
+        self.update_ref(&ref_remote(Self::LOCALHOST), &cset_commit)?;
 
         println!("commit {} {}",
-                 &util::to_zbase32(&inc_commit)[..8],
-                 &hex::encode(&inc_commit));
+                 &util::to_zbase32(&cset_commit)[..8],
+                 &hex::encode(&cset_commit));
 
-        res.inc_head = Some(inc_commit);
+        res.inc_head = Some(cset_commit);
 
 
         Ok(res)
@@ -517,118 +515,6 @@ impl Store {
         hex::decode_to_slice(out1, &mut res).unwrap();
 
         println!("    tree   {} {}", &util::to_zbase32(&res)[..8], out1);
-
-        Ok(res)
-    }
-
-    fn walk_all(&self, from: &Id) -> Result<Vec<(Id, Id)>> {
-        let mut res = vec![];
-        let mut remain = vec![from.clone()];
-
-        while !remain.is_empty() {
-            let id = remain.pop().unwrap();
-
-            let anno = self.read_commit(&id, false)?;
-
-            debug!("walk: anno = {:?}", anno);
-
-            let tree = anno.fid;
-            let pid = anno.pid;
-
-            res.push((id, tree));
-
-            for x in pid.into_iter() {
-                remain.push(x);
-            }
-        }
-
-        Ok(res)
-    }
-
-    // TODO: add 'no_dup' mode
-    // when no_dup is true, already walked result will add to stop_set
-    // when no_dup is false, stop_set will keep unchange.
-    // use no_dup = false, and reverse result order to ensure
-    // any indexed oid always has indexed parent,
-    // when interrupt happend during index
-    pub fn walk(&self, from: &Id, until: &Option<Id>, no_dup: bool) -> Result<Vec<(Id, Id)>> {
-        if let None = until {
-            return self.walk_all(from);
-        }
-
-        let mut stop_set: BTreeSet<Id> = self.walk_all(&until.unwrap())?.into_iter()
-            .map(|(x, _)| x).collect();
-
-        let mut res = vec![];
-        let mut remain = vec![from.clone()];
-
-        debug!("stop_set: {:?}", stop_set);
-
-        while !remain.is_empty() {
-            let id = remain.pop().unwrap();
-            // this branch done
-            if stop_set.contains(&id) { continue; }
-
-            let anno = self.read_commit(&id, false)?;
-
-            debug!("walk: anno = {:?}", anno);
-
-            let tree = anno.fid;
-            let pid = anno.pid;
-
-            res.push((id.clone(), tree));
-
-            for x in pid.into_iter() {
-                remain.push(x)
-            }
-
-            if !no_dup { stop_set.insert(id); }
-        }
-
-        Ok(res)
-    }
-
-    // return: cset id: anno id set
-    pub fn walk_until(&self,
-                      from_cset: &Id,
-                      until_anno: &Option<Id>) -> Result<Vec<(Id, BTreeSet<Id>)>> {
-        let mut res = vec![];
-        let mut remain = vec![from_cset.clone()];
-
-        'outer: while !remain.is_empty() {
-            let id = remain.pop().unwrap();
-
-            // this branch done
-            let anno = self.read_commit(&id, false)?;
-
-            debug!("walk: anno = {:?}", anno);
-
-            let tid = anno.fid;
-            let pid = anno.pid;
-
-            let mut tree = BTreeSet::new();
-
-            tree = self.read_tree(&tid)?.into_iter()
-                .filter(|(tp, _, _)|
-                        if let ObjType::Commit = tp { true }
-                        else {false})
-                .map(|(_, _, aid)| aid)
-                .collect();
-
-            if let Some(anno) = until_anno {
-                if tree.contains(anno) {
-                    debug!("stop at {}: {}", &hex::encode(&id)[..10],
-                           &hex::encode(&tid)[..10]);
-                        continue 'outer;
-                }
-            }
-
-            res.push((id.clone(), tree));
-
-            for x in pid.into_iter() {
-                remain.push(x)
-            }
-        }
 
         Ok(res)
     }
