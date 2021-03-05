@@ -77,9 +77,9 @@ pub struct Store {
 }
 
 #[derive(Debug, Clone)]
-pub struct Commit {
+pub struct CommitResult {
     pub obj_list: Vec<Id>,
-    pub inc_head: Option<Id>,
+    pub oid: Option<Id>,
 }
 
 pub fn ref_remote(name: &str) -> String {
@@ -125,7 +125,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn show_ref(&self, git_ref: &str) -> Result<Option<Id>> {
+    pub fn git_show_ref(&self, git_ref: &str) -> Result<Option<Id>> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("show-ref")
@@ -145,7 +145,7 @@ impl Store {
         Ok(Some(res))
     }
 
-    pub fn show_ref_all(&self) -> Result<BTreeMap<String, Id>> {
+    pub fn git_show_ref_all(&self) -> Result<BTreeMap<String, Id>> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("show-ref")
@@ -169,7 +169,7 @@ impl Store {
         Ok(res)
     }
 
-    pub fn update_ref(&self, git_ref: &str, commit: &Id) -> Result<()> {
+    pub fn git_update_ref(&self, git_ref: &str, commit: &Id) -> Result<()> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("update-ref")
@@ -186,12 +186,12 @@ impl Store {
         Ok(())
     }
 
-    fn cat_file(&self, tp: &str, commit: &Id) -> Result<Vec<u8>> {
+    fn git_cat_file(&self, tp: &str, oid: &Id) -> Result<Vec<u8>> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("cat-file")
             .arg(tp)
-            .arg(&hex::encode(commit))
+            .arg(&hex::encode(oid))
             .output()
             .expect("failed to execute git-cat-file");
 
@@ -203,13 +203,14 @@ impl Store {
         Ok(git.stdout)
     }
 
-    pub fn read_commit(&self, commit: &Id, full: bool) -> Result<Anno> {
-        let raw = self.cat_file("commit", commit)?;
+    //
+    pub fn read_commit(&self, oid: &Id) -> Result<git::Commit> {
+        let raw = self.git_cat_file("commit", oid)?;
         let buf = str::from_utf8(&raw).unwrap();
 
         let mut slice = &buf[..];
         let mut ln: &str;
-        let mut pid_list: Vec<Id> = vec![];
+        let mut parent: Vec<Id> = vec![];
         let mut tree: Id = [0;32];
 
         loop {
@@ -231,20 +232,30 @@ impl Store {
             else if ln1.starts_with("parent ") {
                 let pid = util::to_id(&hex::decode(ln1[6..].trim()).unwrap());
                 debug!("read_commit: parent = {}", hex::encode(&pid));
-                pid_list.push(pid);
+                parent.push(pid);
             }
             else if ln1.is_empty() {
                 break
             }
         }
 
-        let res = Anno::decode(&pid_list[..], &tree, slice, full)?;
+        Ok(git::Commit {
+            oid: oid.clone(),
+            parent,
+            tree,
+            comment: slice.to_string()
+        })
+    }
+
+    pub fn read_commit_anno(&self, oid: &Id, full: bool) -> Result<Anno> {
+        let commit = self.read_commit(oid)?;
+        let res = Anno::decode(&commit.parent[..], &commit.tree, &commit.comment, full)?;
 
         Ok(res)
     }
 
     pub fn read_tree(&self, commit: &Id) -> Result<Vec<(ObjType, String, Id)>> {
-        let raw = self.cat_file("tree", commit)?;
+        let raw = self.git_cat_file("tree", commit)?;
 
         let mut idx0 = 0;
         let mut idx1 = 0;
@@ -380,10 +391,10 @@ impl Store {
         self.commit_tree(&anno.pid, &anno.fid, time, msg)
     }
 
-    pub fn commit(&mut self, manifest: &mut Manifest) -> Result<Commit> {
+    pub fn commit(&mut self, manifest: &mut Manifest) -> Result<CommitResult> {
         self.update_time()?;
 
-        let mut res = Commit { obj_list: vec![], inc_head: None };
+        let mut res = CommitResult { obj_list: vec![], oid: None };
 
         for (name, anno) in manifest.anno_map.iter_mut() {
             println!("--> {}", name);
@@ -436,7 +447,7 @@ impl Store {
                  &hex::encode(tree));
 
         // update localhost cset tip
-        let parent = match self.show_ref(&ref_remote(Self::LOCALHOST))? {
+        let parent = match self.git_show_ref(&ref_remote(Self::LOCALHOST))? {
             Some(id) => vec![id],
             None => vec![],
         };
@@ -444,13 +455,13 @@ impl Store {
         let cset_commit = self.commit_tree(&parent, &tree,
                                      self.date, "")?;
 
-        self.update_ref(&ref_remote(Self::LOCALHOST), &cset_commit)?;
+        self.git_update_ref(&ref_remote(Self::LOCALHOST), &cset_commit)?;
 
         println!("commit {} {}",
                  &util::to_zbase32(&cset_commit)[..8],
                  &hex::encode(&cset_commit));
 
-        res.inc_head = Some(cset_commit);
+        res.oid = Some(cset_commit);
 
 
         Ok(res)
@@ -521,8 +532,8 @@ impl Store {
 
     // walk from ref_remote(changeset) to ref_local(changeset)
     pub fn walk_cset(&self, changeset: &str) -> Result<Vec<(Id, BTreeSet<Id>)>> {
-        let from = self.show_ref(&ref_remote(changeset))?.unwrap();
-        let to_opt = self.show_ref(&ref_local(changeset))?;
+        let from = self.git_show_ref(&ref_remote(changeset))?.unwrap();
+        let to_opt = self.git_show_ref(&ref_local(changeset))?;
 
         debug!("walk_cset: {}, from {} to {}",
                &changeset, &hex::encode(&from[..5]),
@@ -543,12 +554,12 @@ impl Store {
             }
 
             // this branch done
-            let anno = self.read_commit(&id, false)?;
+            let commit = self.read_commit(&id)?;
 
-            debug!("walk_cset: anno = {:?}", anno);
+            debug!("walk_cset: commit = {:?}", commit);
 
-            let tid = anno.fid;
-            let pid = anno.pid;
+            let tid = commit.tree;
+            let parent = commit.parent;
 
             let tree = self.read_tree(&tid)?.into_iter()
                 .filter(|(tp, _, _)|
@@ -560,7 +571,7 @@ impl Store {
 
             res.push((id.clone(), tree));
 
-            for x in pid.into_iter() {
+            for x in parent.into_iter() {
                 remain.push(x)
             }
         }

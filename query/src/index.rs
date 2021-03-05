@@ -243,7 +243,7 @@ impl Indexer {
     }
 
     pub fn import_anno(&mut self, id: &Id, with_file: bool) -> Result<()> {
-        let anno = self.store.read_commit(id, false)?;
+        let anno = self.store.read_commit_anno(id, false)?;
 
         import_anno_(&mut self.client, id, &anno)?;
 
@@ -273,7 +273,7 @@ impl Indexer {
                 res += 1;
             }
 
-            self.store.update_ref(&store::ref_local(&cset), &cid)?;
+            self.store.git_update_ref(&store::ref_local(&cset), &cid)?;
         }
 
         Ok(res)
@@ -281,7 +281,7 @@ impl Indexer {
 
     pub fn index_cset_all(&mut self) -> Result<usize> {
         let refs: Vec<String> =
-            self.store.show_ref_all()?.keys()
+            self.store.git_show_ref_all()?.keys()
             .filter(|x| x.starts_with("refs/remotes/") &&
                     x.ends_with("/localhost"))
             .map(|x| x

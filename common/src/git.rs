@@ -41,7 +41,7 @@ impl Type {
     }
 }
 
-
+#[derive(Debug, Clone)]
 pub struct Commit {
     pub oid: Oid,
     pub parent: Vec<Oid>,
@@ -53,6 +53,7 @@ pub struct Commit {
 impl HasOid for Commit { fn oid(&self) -> Oid { self.oid } }
 impl HasType for Commit { fn otype(&self) -> Type { Type::Commit }}
 
+#[derive(Debug, Clone)]
 pub struct TreeEntry {
     pub oid: Oid,
     pub mode: Type,
@@ -61,6 +62,7 @@ pub struct TreeEntry {
 
 impl HasOid for TreeEntry { fn oid(&self) -> Oid { self.oid } }
 
+#[derive(Debug, Clone)]
 pub struct Tree {
     pub oid: Oid,
     pub entry: Vec<TreeEntry>,
@@ -69,6 +71,7 @@ pub struct Tree {
 impl HasOid for Tree { fn oid(&self) -> Oid { self.oid } }
 impl HasType for Tree { fn otype(&self) -> Type { Type::Tree }}
 
+#[derive(Debug, Clone)]
 pub struct Blob {
     pub oid: Oid,
     pub mode: i32, // if unknown, use 644
@@ -78,6 +81,7 @@ pub struct Blob {
 impl HasOid for Blob { fn oid(&self) -> Oid { self.oid } }
 impl HasType for Blob { fn otype(&self) -> Type { Type::Blob(self.mode) }}
 
+#[derive(Debug, Clone)]
 pub struct Tag {
     pub oid: Oid,
     pub data: Option<Vec<u8>>,
@@ -86,6 +90,7 @@ pub struct Tag {
 impl HasOid for Tag { fn oid(&self) -> Oid { self.oid } }
 impl HasType for Tag { fn otype(&self) -> Type { Type::Tag }}
 
+#[derive(Debug, Clone)]
 pub enum Object {
     Commit(Commit),
     Blob(Blob),
