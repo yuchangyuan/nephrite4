@@ -287,8 +287,8 @@ impl Indexer {
         let last_anno_opt = last_anno_(&mut self.client)?;
 
         match last_anno_opt {
-            Some(x) => debug!("index: last anno is {}", &hex::encode(&x[..5])),
-            _ => debug!("index: last anno is None"),
+            Some(x) => println!("last anno is {}", &hex::encode(&x[..5])),
+            _ => println!("last anno is None"),
         };
 
         let from_cset = from_cset_opt.unwrap_or(
@@ -309,6 +309,54 @@ impl Indexer {
                 self.import_anno(&aid, true)?;
                 println!("  {} imported", &hex::encode(&aid[..5]));
                 res += 1;
+            }
+        }
+
+        Ok(res)
+    }
+
+    pub fn index_cset(&mut self, cset: &str) -> Result<usize> {
+        let mut list = self.store.walk_cset(cset)?;
+        list.reverse();
+
+        let mut res = 0;
+
+        for (cid, aid_set) in list.into_iter() {
+            println!("index changeset {}", &hex::encode(&cid[..5]));
+            for aid in aid_set {
+                if oid_exist_(&mut self.client, &aid)? {
+                    println!("  {} exist, skip", &hex::encode(&aid[..5]));
+                    continue;
+                }
+
+                self.import_anno(&aid, true)?;
+                println!("  {} imported", &hex::encode(&aid[..5]));
+                res += 1;
+            }
+
+            self.store.update_ref(&store::ref_local(&cset), &cid)?;
+        }
+
+        Ok(res)
+    }
+
+    pub fn index_cset_all(&mut self) -> Result<usize> {
+        let refs: Vec<String> =
+            self.store.show_ref_all()?.keys()
+            .filter(|x| x.starts_with("refs/remotes/") &&
+                    x.ends_with("/localhost"))
+            .map(|x| x
+                 .strip_prefix("refs/remotes/").unwrap()
+                 .strip_suffix("/localhost").unwrap()
+                 .to_string())
+            .collect();
+
+        let mut res = 0;
+        for r in refs {
+            println!("index changeset for '{}'", &r);
+            match self.index_cset(&r) {
+                Ok(x) => res += x,
+                Err(_) => ()
             }
         }
 

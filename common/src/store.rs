@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, process::{self, Command, Stdio}};
+use std::{collections::{BTreeMap, BTreeSet}, process::{self, Command, Stdio}};
 
 use crate::util;
 use crate::conf::Conf;
@@ -82,8 +82,17 @@ pub struct Commit {
     pub inc_head: Option<Id>,
 }
 
+pub fn ref_remote(name: &str) -> String {
+    format!("refs/remotes/{}/{}", name, Store::LOCALHOST)
+}
+
+pub fn ref_local(name: &str) -> String {
+    format!("refs/heads/{}", name)
+}
+
 impl Store {
     pub const INC_REF: &'static str = "refs/heads/inc";
+    pub const LOCALHOST: &'static str = "localhost";
 
     pub fn new(conf: &Conf) -> Result<Store> {
         let mut res = Store {
@@ -137,7 +146,31 @@ impl Store {
         Ok(Some(res))
     }
 
-    fn update_ref(&self, git_ref: &str, commit: &Id) -> Result<()> {
+    pub fn show_ref_all(&self) -> Result<BTreeMap<String, Id>> {
+        let git = Command::new("git")
+            .env(ENV_GIT_DIR, &self.root)
+            .arg("show-ref")
+            .output()
+            .expect("failed to execute git-show-ref");
+
+        let mut res = BTreeMap::new();
+
+        // not exist
+        if !git.status.success() { return Ok(res) } // TODO, return error
+
+        for ln in str::from_utf8(&git.stdout).unwrap().lines() {
+            let mut i = ln.split(' ');
+            let mut id = [0;32];
+            hex::decode_to_slice(&i.next().unwrap(), &mut id).unwrap();
+            let name = i.next().unwrap();
+
+            res.insert(name.into(), id);
+        }
+
+        Ok(res)
+    }
+
+    pub fn update_ref(&self, git_ref: &str, commit: &Id) -> Result<()> {
         let git = Command::new("git")
             .env(ENV_GIT_DIR, &self.root)
             .arg("update-ref")
@@ -413,7 +446,7 @@ impl Store {
         let inc_commit = self.commit_tree(&inc_parent, &tree,
                                      self.date, "")?;
 
-        self.update_ref(Self::INC_REF, &inc_commit)?;
+        self.update_ref(&ref_remote(Self::LOCALHOST), &inc_commit)?;
 
         println!("commit {} {}",
                  &util::to_zbase32(&inc_commit)[..8],
@@ -575,14 +608,14 @@ impl Store {
 
             let mut tree = BTreeSet::new();
 
-            if let Some(anno) = until_anno {
-                tree = self.read_tree(&tid)?.into_iter()
-                    .filter(|(tp, _, _)|
-                            if let ObjType::Commit = tp { true }
-                            else {false})
-                    .map(|(_, _, aid)| aid)
-                    .collect();
+            tree = self.read_tree(&tid)?.into_iter()
+                .filter(|(tp, _, _)|
+                        if let ObjType::Commit = tp { true }
+                        else {false})
+                .map(|(_, _, aid)| aid)
+                .collect();
 
+            if let Some(anno) = until_anno {
                 if tree.contains(anno) {
                     debug!("stop at {}: {}", &hex::encode(&id)[..10],
                            &hex::encode(&tid)[..10]);
@@ -600,6 +633,54 @@ impl Store {
         Ok(res)
     }
 
+    // walk from ref_remote(changeset) to ref_local(changeset)
+    pub fn walk_cset(&self, changeset: &str) -> Result<Vec<(Id, BTreeSet<Id>)>> {
+        let from = self.show_ref(&ref_remote(changeset))?.unwrap();
+        let to_opt = self.show_ref(&ref_local(changeset))?;
+
+        debug!("walk_cset: {}, from {} to {}",
+               &changeset, &hex::encode(&from[..5]),
+               &to_opt.map_or("none".to_string(),
+                              |x| hex::encode(&x[..5])));
+
+        let mut res = vec![];
+        let mut remain = vec![from];
+
+        while !remain.is_empty() {
+            let id = remain.pop().unwrap();
+
+            if let Some(to) = to_opt {
+                if to == id {
+                    debug!("walk_cset: stop at {}", &hex::encode(&id)[..10]);
+                    continue
+                }
+            }
+
+            // this branch done
+            let anno = self.read_commit(&id, false)?;
+
+            debug!("walk_cset: anno = {:?}", anno);
+
+            let tid = anno.fid;
+            let pid = anno.pid;
+
+            let tree = self.read_tree(&tid)?.into_iter()
+                .filter(|(tp, _, _)|
+                        if let ObjType::Commit = tp { true }
+                        else {false})
+                .map(|(_, _, aid)| aid)
+                .collect();
+
+
+            res.push((id.clone(), tree));
+
+            for x in pid.into_iter() {
+                remain.push(x)
+            }
+        }
+
+        Ok(res)
+    }
 }
 
 #[cfg(test)]

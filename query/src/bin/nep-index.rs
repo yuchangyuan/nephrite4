@@ -12,7 +12,9 @@ fn main() -> Result<()> {
     let conf = conf::Conf::read();
     let mut indexer = index::Indexer::new(&conf)?;
 
-    indexer.index(&None)?;
+    let num = indexer.index_cset_all()?;
+
+    println!("index total {} objs", num);
 
     Ok(())
 }
