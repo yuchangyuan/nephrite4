@@ -24,7 +24,7 @@ fn main() {
         };
 
         let pid0 = if anno.pid.is_empty() {
-            "       ".to_string()
+            "        ".to_string()
         }
         else {
             util::to_zbase32(&anno.pid[0])
