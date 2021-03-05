@@ -32,6 +32,8 @@ use std::str;
 
 use log::debug;
 
+use crate::git;
+
 const BUP_CMD: &'static str = "bup256";
 const ENV_BUP_DIR: &'static str = "BUP_DIR";
 const ENV_BUP_FORCE_TTY: &'static str = "BUP_FORCE_TTY";
@@ -60,37 +62,7 @@ fn min_uniq_len(list: &Vec<Id>) -> usize {
     32
 }
 
-
-#[derive(Debug, Copy, Clone)]
-pub enum ObjType {
-    // 160000
-    Commit,
-    // 040000
-    Tree,
-    // file: 100755 or 100644
-    // symlink: 120000
-    Blob(i32),
-    Tag,
-}
-
-impl ObjType {
-    fn mode(&self) -> i32 {
-        match self {
-            ObjType::Commit  => 0o160000,
-            ObjType::Tree    => 0o040000,
-            ObjType::Blob(m) => *m,
-            ObjType::Tag     => 0,
-        }
-    }
-
-    pub fn from_mode(m: i32) -> ObjType {
-        match m {
-            0o160000 => ObjType::Commit,
-            0o040000 => ObjType::Tree,
-            _ => ObjType::Blob(m),
-        }
-    }
-}
+pub type ObjType = git::Type;
 
 fn type2mode(t: &ObjType) -> i32 {
     t.mode()
