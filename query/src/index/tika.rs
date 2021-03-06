@@ -2,8 +2,8 @@ use nephrite4_common::conf;
 
 use j4rs::{Instance, InvocationArg, ClasspathEntry, Jvm, JvmBuilder};
 
-use log::info;
-use std::{collections::BTreeMap, os::unix::prelude::AsRawFd};
+use log::{debug, info};
+use std::{collections::BTreeMap, env, fs::File, io::Write, os::unix::prelude::AsRawFd, process::Command};
 
 use crate::error::*;
 
@@ -35,10 +35,51 @@ fn ja_bool(i: bool) -> InvocationArg {
     InvocationArg::try_from(i).unwrap().into_primitive().unwrap()
 }
 
+fn j4rs_tmp_dir() -> Result<String> {
+    let base = env::var("XDG_RUNTIME_DIR").unwrap_or("/tmp".into());
+
+    Ok(base + "/nephrite")
+}
+
 impl Tika {
     pub fn new(conf: &conf::Conf) -> Result<Tika> {
         let jar = conf.tika_jar();
+
+        let tmp_dir = j4rs_tmp_dir()?;
+
+        info!("init...");
+
+        // copy jar to tmp_dir
+        macro_rules! JAR_NAME {() => {"j4rs-0.13.0-jar-with-dependencies.jar"}}
+
+        // write file
+        {
+            let buf = std::include_bytes!(
+                std::concat!("../../../target/debug/jassets/", JAR_NAME!()));
+
+            // mkdir
+            std::fs::create_dir_all(format!("{}/jassets", &tmp_dir))?;
+
+            let path = format!("{}/jassets/{}", &tmp_dir, JAR_NAME!());
+            let mut file = File::create(&path)?;
+            file.write(buf)?;
+
+            debug!("write jar {}", &path);
+
+            // remove 'org/slf4j/impl/'
+            const STRIP_PATT: &'static str = "org/slf4j/impl/*";
+            Command::new("zip")
+                .arg("-d")
+                .arg(&path)
+                .arg(STRIP_PATT)
+                .output()
+                .expect("failed to execute zip");
+
+            debug!("remove '{}' from jar", STRIP_PATT);
+        }
+
         let jvm: Jvm = JvmBuilder::new()
+            .with_base_path(&tmp_dir)
             .classpath_entry(ClasspathEntry::new(&jar))
             .build()?;
 
