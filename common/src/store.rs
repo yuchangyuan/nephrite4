@@ -437,7 +437,11 @@ impl Store {
         let yaml = anno.gen_yaml()?;
         let msg = yaml.trim_start_matches('-').trim();
 
-        self.commit_tree(&anno.pid, &anno.fid, time, msg)
+        let oid = self.commit_tree(&anno.pid, &anno.fid, time, msg)?;
+
+        // TODO, update ref for anno
+
+        Ok(oid)
     }
 
     pub fn commit(&mut self, manifest: &mut Manifest) -> Result<CommitResult> {
