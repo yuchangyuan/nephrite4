@@ -21,6 +21,11 @@ pub enum Type {
 }
 
 impl Type {
+    // default blob type
+    pub fn blob() -> Self {
+        Type::Blob(0o100644)
+    }
+
     pub fn mode(&self) -> i32 {
         match self {
             Type::Commit  => 0o160000,
@@ -36,6 +41,15 @@ impl Type {
             0o040000 => Type::Tree,
             _ => Type::Blob(m),
         }
+    }
+
+    pub fn str(&self) -> String {
+        match self {
+            Type::Commit => "commit",
+            Type::Tree   => "tree",
+            Type::Blob(_) => "blob",
+            Type::Tag    => "tag",
+        }.to_string()
     }
 }
 

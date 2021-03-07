@@ -30,7 +30,7 @@ use serde_cbor::value as cv;
 use hex;
 use std::str;
 
-use log::debug;
+use log::{debug, info, warn};
 
 use crate::git;
 use git::Oid;
@@ -292,6 +292,57 @@ impl Store {
 
             idx0 = idx1;
         }
+
+        Ok(res)
+    }
+
+
+    pub fn git_hash_object(&self, tp: git::Type, obj: &[u8]) -> Result<Id> {
+        let mut git = Command::new("git")
+            .env(ENV_GIT_DIR, &self.root)
+            .arg("hash-object")
+            .arg("-t")
+            .arg(tp.str())
+            .arg("--stdin")
+            .arg("-w")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("failed to execute git-hash-object");
+
+        {
+            let mut stdin = git.stdin.take().unwrap();
+
+            stdin.write_all(obj)?;
+        }
+
+        if !git.wait()?.success() {
+            debug!("tp: {}, obj: {:?}", tp.str(), obj);
+
+            let mut stderr = git.stderr.take().unwrap();
+            let mut msg = String::new();
+            stderr.read_to_string(&mut msg)?;
+
+            warn!("git_hash_object fail: {}", &msg);
+
+            return Err(err_simple(&msg))
+        }
+
+        // close stdin
+        let mut stdout = git.stdout.take().unwrap();
+
+
+        let mut out = String::new();
+        stdout.read_to_string(&mut out)?;
+        let out1 = out.trim();
+
+        assert_eq!(out1.len(), OID_LEN * 2);
+
+        let mut res = [0;32];
+        hex::decode_to_slice(out1, &mut res).unwrap();
+
+        debug!("hash object {}", out1);
 
         Ok(res)
     }
