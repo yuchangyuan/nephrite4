@@ -485,6 +485,18 @@ impl Store {
             tree.insert(git::TreeEntry { name, oid: oid.clone(), mode: git::Type::Commit});
         }
 
+        // add .gitmodules
+        let mut lns = vec![];
+        for entry in &tree {
+            lns.push(format!("[submodule \"{}\"]\npath={}\nurl=./\n",
+                                    entry.name, entry.name));
+        }
+        let gitmodules = lns.join("");
+        tree.insert(git::TreeEntry { name: ".gitmodules".into(),
+                                     oid: self.git_hash_object(git::Type::blob(),
+                                                               gitmodules.as_bytes())?,
+                                     mode: git::Type::blob() });
+
         let tid = self.write_tree(&tree)?;
 
         println!("---");
