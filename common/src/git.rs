@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::util::Id;
 
 pub type Oid = Id;
@@ -6,7 +8,7 @@ pub trait HasType {
     fn otype(&self) -> Type;
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum Type {
     // 160000
     Commit,
@@ -47,14 +49,15 @@ pub struct Commit {
 
 impl HasType for Commit { fn otype(&self) -> Type { Type::Commit }}
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Clone)]
 pub struct TreeEntry {
+    pub name: String,
     pub oid: Oid,
     pub mode: Type,
-    pub name: String,
 }
 
-pub type Tree = Vec<TreeEntry>;
+// NOTE: Tree should be sorted by name
+pub type Tree = BTreeSet<TreeEntry>;
 
 impl HasType for Tree { fn otype(&self) -> Type { Type::Tree }}
 

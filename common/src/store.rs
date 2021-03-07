@@ -65,10 +65,6 @@ fn min_uniq_len(list: &Vec<Id>) -> usize {
 
 pub type ObjType = git::Type;
 
-fn type2mode(t: &ObjType) -> i32 {
-    t.mode()
-}
-
 #[derive(Debug, Clone)]
 pub struct Store {
     pub root: String,
@@ -269,7 +265,7 @@ impl Store {
             false
         };
 
-        let mut res = vec![];
+        let mut res = BTreeSet::new();
 
         loop {
             if !next_byte_match(b' ', &mut idx1) { break; }
@@ -290,9 +286,9 @@ impl Store {
 
             let mode_i = i32::from_str_radix(&mode, 8).unwrap();
 
-            res.push(git::TreeEntry { mode: ObjType::from_mode(mode_i),
-                                      name: name.to_string(),
-                                      oid: id });
+            res.insert(git::TreeEntry { mode: ObjType::from_mode(mode_i),
+                                        name: name.to_string(),
+                                        oid: id });
 
             idx0 = idx1;
         }
@@ -300,7 +296,7 @@ impl Store {
         Ok(res)
     }
 
-    fn write_tree(&self, list: &[(ObjType, &Id, &str)]) -> Result<Id> {
+    fn write_tree(&self, tree: &git::Tree) -> Result<Id> {
         /* format
         tree <size>\0
         <mode> <name>\0<oid>
@@ -323,9 +319,9 @@ impl Store {
         {
             let mut stdin = git.stdin.take().unwrap();
 
-            for (tp, id, name) in list {
-                stdin.write_fmt(format_args!("{:o} {}\0", type2mode(tp), name))?;
-                stdin.write_all(*id)?;
+            for entry in tree {
+                stdin.write_fmt(format_args!("{:o} {}\0", entry.mode.mode(), entry.name))?;
+                stdin.write_all(&entry.oid)?;
             }
         }
 
@@ -432,21 +428,18 @@ impl Store {
         // create tree for new commit
         let len = min_uniq_len(&res.obj_list);
 
-        let mut list = vec![];
-        for id in res.obj_list.iter() {
-            let name = hex::encode(&id[..len]);
-            list.push((ObjType::Commit, id, name));
+        let mut tree = BTreeSet::new();
+        for oid in res.obj_list.iter() {
+            let name = hex::encode(&oid[..len]);
+            tree.insert(git::TreeEntry { name, oid: oid.clone(), mode: git::Type::Commit});
         }
 
-        let list1: Vec<(ObjType, &Id, &str)> =
-            list.iter().map(|(a, b, c)| (*a, *b, &c[..])).collect();
-
-        let tree = self.write_tree(&list1[..])?;
+        let tid = self.write_tree(&tree)?;
 
         println!("---");
         println!("tree   {} {}",
-                 &util::to_zbase32(&tree)[..8],
-                 &hex::encode(tree));
+                 &util::to_zbase32(&tid)[..8],
+                 &hex::encode(tid));
 
         // update localhost cset tip
         let parent = match self.git_show_ref(&ref_remote(Self::LOCALHOST))? {
@@ -454,7 +447,7 @@ impl Store {
             None => vec![],
         };
 
-        let cset_commit = self.commit_tree(&parent, &tree,
+        let cset_commit = self.commit_tree(&parent, &tid,
                                      self.date, "")?;
 
         self.git_update_ref(&ref_remote(Self::LOCALHOST), &cset_commit)?;
