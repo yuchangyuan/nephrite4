@@ -1,8 +1,8 @@
 use crate::util::Id;
 
-type Oid = Id;
+pub type Oid = Id;
 
-trait HasType {
+pub trait HasType {
     fn otype(&self) -> Type;
 }
 

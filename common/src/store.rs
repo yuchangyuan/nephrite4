@@ -33,6 +33,7 @@ use std::str;
 use log::debug;
 
 use crate::git;
+use git::Oid;
 
 const BUP_CMD: &'static str = "bup256";
 const ENV_BUP_DIR: &'static str = "BUP_DIR";
@@ -531,25 +532,21 @@ impl Store {
         Ok(res)
     }
 
-    // walk from ref_remote(changeset) to ref_local(changeset)
-    pub fn walk_cset(&self, changeset: &str) -> Result<Vec<(Id, BTreeSet<Id>)>> {
-        let from = self.git_show_ref(&ref_remote(changeset))?.unwrap();
-        let to_opt = self.git_show_ref(&ref_local(changeset))?;
-
-        debug!("walk_cset: {}, from {} to {}",
-               &changeset, &hex::encode(&from[..5]),
-               &to_opt.map_or("none".to_string(),
-                              |x| hex::encode(&x[..5])));
+    pub fn walk(&self, from: &Oid, to_opt: Option<&Oid>) -> Result<Vec<(Oid, git::Tree)>> {
+        debug!("walk: from {} to {}",
+               &hex::encode(&from[..5]),
+               to_opt.map_or("none".to_string(),
+                             |x| hex::encode(&x[..5])));
 
         let mut res = vec![];
-        let mut remain = vec![from];
+        let mut remain = vec![from.clone()];
 
         while !remain.is_empty() {
             let id = remain.pop().unwrap();
 
             if let Some(to) = to_opt {
-                if to == id {
-                    debug!("walk_cset: stop at {}", &hex::encode(&id)[..10]);
+                if *to == id {
+                    debug!("walk: stop at {}", &hex::encode(&id)[..10]);
                     continue
                 }
             }
@@ -557,18 +554,12 @@ impl Store {
             // this branch done
             let commit = self.read_commit(&id)?;
 
-            debug!("walk_cset: commit = {:?}", commit);
+            debug!("walk: commit = {:?}", commit);
 
             let tid = commit.tree;
             let parent = commit.parent;
 
-            let tree = self.read_tree(&tid)?.into_iter()
-                .filter(|te|
-                        if let ObjType::Commit = te.mode { true }
-                        else {false})
-                .map(|te| te.oid)
-                .collect();
-
+            let tree = self.read_tree(&tid)?.into();
 
             res.push((id.clone(), tree));
 
@@ -576,6 +567,26 @@ impl Store {
                 remain.push(x)
             }
         }
+
+        Ok(res)
+    }
+
+    // walk from ref_remote(changeset) to ref_local(changeset)
+    pub fn walk_cset(&self, changeset: &str) -> Result<Vec<(Id, BTreeSet<Id>)>> {
+        let from = self.git_show_ref(&ref_remote(changeset))?.unwrap();
+        let to_opt = self.git_show_ref(&ref_local(changeset))?;
+
+        debug!("walk_cset: {}", changeset);
+
+        let res = self.walk(&from, to_opt.as_ref())?.into_iter()
+            .map(|(id, tr)| (id,
+                             tr.into_iter()
+                             .filter(|te|
+                                     if let git::Type::Commit = te.mode
+                                     {true} else {false})
+                             .map(|te| te.oid)
+                             .collect()))
+            .collect();
 
         Ok(res)
     }
