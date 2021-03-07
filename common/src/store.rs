@@ -240,7 +240,6 @@ impl Store {
         }
 
         Ok(git::Commit {
-            oid: oid.clone(),
             parent,
             tree,
             comment: slice.to_string()
@@ -254,8 +253,8 @@ impl Store {
         Ok(res)
     }
 
-    pub fn read_tree(&self, commit: &Id) -> Result<Vec<(ObjType, String, Id)>> {
-        let raw = self.git_cat_file("tree", commit)?;
+    pub fn read_tree(&self, oid: &Id) -> Result<git::Tree> {
+        let raw = self.git_cat_file("tree", &oid)?;
 
         let mut idx0 = 0;
         let mut idx1 = 0;
@@ -290,7 +289,9 @@ impl Store {
 
             let mode_i = i32::from_str_radix(&mode, 8).unwrap();
 
-            res.push((ObjType::from_mode(mode_i), name.to_string(), id));
+            res.push(git::TreeEntry { mode: ObjType::from_mode(mode_i),
+                                      name: name.to_string(),
+                                      oid: id });
 
             idx0 = idx1;
         }
@@ -562,10 +563,10 @@ impl Store {
             let parent = commit.parent;
 
             let tree = self.read_tree(&tid)?.into_iter()
-                .filter(|(tp, _, _)|
-                        if let ObjType::Commit = tp { true }
+                .filter(|te|
+                        if let ObjType::Commit = te.mode { true }
                         else {false})
-                .map(|(_, _, aid)| aid)
+                .map(|te| te.oid)
                 .collect();
 
 
