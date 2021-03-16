@@ -3,6 +3,7 @@ name = "nephrite4-query"
 version = "0.1.0"
 authors = ["Yu Changyuan <reivzy@gmail.com>"]
 edition = "2018"
+license = "GPL-3.0-or-later"
 
 [dependencies]
 nephrite4-common = { path = "../common" }
